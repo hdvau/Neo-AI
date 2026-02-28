@@ -78,13 +78,12 @@ Neo can be configured using the `config/config.yaml` file to connect with your p
 
 ```yaml
 # Operation Mode
-mode: "digital_ocean"  # Options: 'lm_studio' or 'digital_ocean'
+mode: "lm_studio"  # Options: 'lm_studio' local or 'digital_ocean' cloud
 
 # LM Studio Configuration (Local)
-api:
-  key: "lm-studio"
-  url: "http://localhost:6959/v1"
-  model: "your-model-name"
+api_url: "http://127.0.0.1:1234/v1"
+api_key: ""                    
+model: "your-model-name"
 
 # DigitalOcean Configuration (Cloud)
 digital_ocean:
@@ -172,3 +171,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 This project is licensed under the BSD 3-Clause License - see the [LICENSE](LICENSE) file for details.
 
 ---
+
