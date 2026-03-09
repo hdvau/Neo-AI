@@ -2,10 +2,9 @@
 mode: "digital_ocean"                                     # Options: 'lm_studio' or 'digital_ocean'
 
 # Lm studio Configuration
-api:
-  key: "lm-studio"                                    # Default API key for LM Studio
-  url: "http://192.168.0.27:6959/v1"                 # LM Studio API URL
-  model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+  api_url: "http:127.0.0.1:1234/v1"     # Default localhost url, diplayed unter the LM Studio Server Tab
+  api_key: ""                                    # Default API key for LM Studio
+  model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"   # Found in LM Studio -> Server -> your loaded Model. Keep in mind to change this, if you switch the modell. And use the pre prompt as System Promt for the model
 
 # DigitalOcean Configuration
 digital_ocean:
