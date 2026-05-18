@@ -3,6 +3,16 @@ import os
 from src.mcp_protocol import mcp  # Import the MCP singleton
 
 
+def _current_user() -> str:
+    """Return the current username without raising in headless environments."""
+    return (
+        os.environ.get("USER")
+        or os.environ.get("LOGNAME")
+        or os.environ.get("USERNAME")
+        or "unknown"
+    )
+
+
 def load_persistent_memory():
     """
     Load persistent memory from file.
@@ -13,13 +23,13 @@ def load_persistent_memory():
     """
     memory_file = "/tmp/persistent_memory.txt"
     if not os.path.exists(memory_file):
-        # Creating persistent memory file with system information
+        uname = os.uname()
         with open(memory_file, "w") as f:
-            f.write(f"Kernel Version: {os.uname().release}\n")
-            f.write(f"OS Info: {os.uname().sysname}\n")
-            f.write(f"Architecture: {os.uname().machine}\n")
-            f.write(f"Hostname: {os.uname().nodename}\n")
-            f.write(f"User: {os.getlogin()}\n")
+            f.write(f"Kernel Version: {uname.release}\n")
+            f.write(f"OS Info: {uname.sysname}\n")
+            f.write(f"Architecture: {uname.machine}\n")
+            f.write(f"Hostname: {uname.nodename}\n")
+            f.write(f"User: {_current_user()}\n")
 
     with open(memory_file, "r") as f:
         return f.read()
