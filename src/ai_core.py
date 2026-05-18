@@ -1,6 +1,7 @@
 import logging
 import os
 import platform
+import re
 import shutil
 from src.command_executor import execute_command_in_terminal, execute_command
 from src.utils import load_persistent_memory
@@ -86,6 +87,10 @@ class NeoAI:
         self.lm_studio_config = config.get('lm_studio_config', {})
         self.history = []
         self.context_initialized = False
+        # Verbose mode: when False (default) MCP tags are stripped from the
+        # displayed response so the terminal stays clean.  When True every
+        # raw token the model generates is shown as-is.
+        self.verbose: bool = False
         # Maximum number of messages kept in history to prevent unbounded memory
         # growth and token-limit breaches. Keeps the last N message pairs.
         self._max_history_messages: int = config.get('max_history_messages', 40)
@@ -147,6 +152,41 @@ class NeoAI:
             )
 
         self.history = [{"role": "system", "content": system_text}]
+
+    # ── Verbose toggle ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _strip_mcp_tags(text: str) -> str:
+        """Remove <mcp:…>…</mcp:…> blocks and clean up the surrounding whitespace."""
+        # Drop the whole tag including its command content
+        cleaned = re.sub(r'[ \t]*<mcp:\w+>.*?</mcp:\w+>[ \t]*', '', text, flags=re.DOTALL)
+        # Collapse runs of 3+ newlines down to two (preserve paragraph breaks)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        return cleaned.strip()
+
+    def toggle_verbose(self, state: str = "") -> str:
+        """Toggle or explicitly set verbose mode.
+
+        Args:
+            state: "on" / "off" to set explicitly, or "" to toggle.
+
+        Returns:
+            A human-readable status string.
+        """
+        if state == "on":
+            self.verbose = True
+        elif state == "off":
+            self.verbose = False
+        else:
+            self.verbose = not self.verbose
+
+        status = "on" if self.verbose else "off"
+        detail = (
+            "Raw model output shown (including MCP tags)."
+            if self.verbose
+            else "MCP tags hidden — clean output mode."
+        )
+        return f"Verbose {status}. {detail}"
 
     def _trim_history(self) -> None:
         """Drop oldest messages when history exceeds the configured limit.
@@ -254,6 +294,25 @@ class NeoAI:
                 messages.append({"role": msg["role"], "content": msg["content"]})
         return system, messages
 
+    def _print_streamed(
+        self,
+        full_response: str,
+        clear_thinking: bool = False,
+        strip_tags: bool = True,
+    ) -> None:
+        """Print a fully-collected model response to the terminal.
+
+        In verbose mode the raw text (including MCP tags) is shown.
+        In clean mode MCP tags are stripped before display.
+        """
+        if clear_thinking:
+            print('\r' + ' ' * 30 + '\r', end="", flush=True)
+
+        display = full_response if self.verbose else self._strip_mcp_tags(full_response)
+        if display:
+            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+            print(display)
+
     def _query_claude(self, prompt: str, clear_thinking: bool = False) -> str:
         """Stream a Claude response and process MCP tags in the reply."""
         system, messages = self._claude_messages()
@@ -261,7 +320,6 @@ class NeoAI:
 
         try:
             full_response = ""
-            is_first_chunk = True
 
             with self._anthropic_client.messages.stream(
                 model=self.model,
@@ -269,17 +327,25 @@ class NeoAI:
                 system=system,
                 messages=messages,
             ) as stream:
-                for text in stream.text_stream:
-                    if text:
-                        if is_first_chunk:
-                            if clear_thinking:
-                                print('\r' + ' ' * 30 + '\r', end="", flush=True)
-                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
-                            is_first_chunk = False
-                        print(text, end='', flush=True)
+                if self.verbose:
+                    # Stream tokens in real-time
+                    is_first_chunk = True
+                    for text in stream.text_stream:
+                        if text:
+                            if is_first_chunk:
+                                if clear_thinking:
+                                    print('\r' + ' ' * 30 + '\r', end="", flush=True)
+                                print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                                is_first_chunk = False
+                            print(text, end='', flush=True)
+                            full_response += text
+                    print()
+                else:
+                    # Collect silently, then print clean
+                    for text in stream.text_stream:
                         full_response += text
+                    self._print_streamed(full_response, clear_thinking=clear_thinking)
 
-            print()
             return self._process_response(full_response)
 
         except Exception as e:
@@ -297,7 +363,6 @@ class NeoAI:
 
         try:
             full_response = ""
-            is_first_chunk = True
 
             with self._anthropic_client.messages.stream(
                 model=self.model,
@@ -305,15 +370,21 @@ class NeoAI:
                 system=system,
                 messages=messages,
             ) as stream:
-                for text in stream.text_stream:
-                    if text:
-                        if is_first_chunk:
-                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
-                            is_first_chunk = False
-                        print(text, end='', flush=True)
+                if self.verbose:
+                    is_first_chunk = True
+                    for text in stream.text_stream:
+                        if text:
+                            if is_first_chunk:
+                                print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                                is_first_chunk = False
+                            print(text, end='', flush=True)
+                            full_response += text
+                    print()
+                else:
+                    for text in stream.text_stream:
                         full_response += text
+                    self._print_streamed(full_response)
 
-            print()
             return full_response.strip()
 
         except Exception as e:
@@ -342,22 +413,29 @@ class NeoAI:
             )
 
             full_response = ""
-            is_first_chunk = True
 
-            for chunk in completion:
-                if 'choices' in chunk and len(chunk['choices']) > 0:
-                    content = chunk['choices'][0]['delta'].get('content', '')
-                    if content:
-                        if is_first_chunk:
-                            if clear_thinking:
-                                print('\r' + ' ' * 30 + '\r', end="", flush=True)
-                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
-                            is_first_chunk = False
+            if self.verbose:
+                is_first_chunk = True
+                for chunk in completion:
+                    if 'choices' in chunk and len(chunk['choices']) > 0:
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        if content:
+                            if is_first_chunk:
+                                if clear_thinking:
+                                    print('\r' + ' ' * 30 + '\r', end="", flush=True)
+                                print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                                is_first_chunk = False
+                            print(content, end='', flush=True)
+                            full_response += content
+                print()
+            else:
+                for chunk in completion:
+                    if 'choices' in chunk and len(chunk['choices']) > 0:
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        if content:
+                            full_response += content
+                self._print_streamed(full_response, clear_thinking=clear_thinking)
 
-                        print(content, end='', flush=True)
-                        full_response += content
-
-            print()
             return self._process_response(full_response)
 
         except Exception as e:
@@ -383,19 +461,27 @@ class NeoAI:
             )
 
             full_response = ""
-            is_first_chunk = True
 
-            for chunk in completion:
-                if 'choices' in chunk and len(chunk['choices']) > 0:
-                    content = chunk['choices'][0]['delta'].get('content', '')
-                    if content:
-                        if is_first_chunk:
-                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
-                            is_first_chunk = False
-                        print(content, end='', flush=True)
-                        full_response += content
+            if self.verbose:
+                is_first_chunk = True
+                for chunk in completion:
+                    if 'choices' in chunk and len(chunk['choices']) > 0:
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        if content:
+                            if is_first_chunk:
+                                print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                                is_first_chunk = False
+                            print(content, end='', flush=True)
+                            full_response += content
+                print()
+            else:
+                for chunk in completion:
+                    if 'choices' in chunk and len(chunk['choices']) > 0:
+                        content = chunk['choices'][0]['delta'].get('content', '')
+                        if content:
+                            full_response += content
+                self._print_streamed(full_response)
 
-            print()
             return full_response.strip()
 
         except Exception as e:

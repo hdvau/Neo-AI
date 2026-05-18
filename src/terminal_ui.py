@@ -45,7 +45,7 @@ class ImprovedTerminalUI:
         """Initialize the terminal UI with Neo AI instance and config."""
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use']
+        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose']
 
         # Create history file in user's home directory
         history_file = os.path.expanduser('~/.neo_history.txt')
@@ -112,6 +112,7 @@ class ImprovedTerminalUI:
   • <highlight>history</highlight>                    - Show conversation history
   • <highlight>clear</highlight>                      - Clear the screen
   • <highlight>exit</highlight>                       - Exit Neo AI
+  • <highlight>neo-verbose [on|off]</highlight>        - Toggle verbose output (show/hide MCP tags)
   • <highlight>neo-use &lt;mode&gt; [model]</highlight>  - Switch AI backend at runtime
       Modes: {modes}
       Examples:
@@ -210,6 +211,21 @@ class ImprovedTerminalUI:
                 elif user_input.lower() == 'clear':
                     clear()
                     self.print_banner()
+
+                elif user_input.lower().startswith('neo-verbose'):
+                    parts = user_input.split()
+                    state = parts[1].lower() if len(parts) >= 2 else ""
+                    if state not in ("on", "off", ""):
+                        print_formatted_text(
+                            HTML('<info>Usage: neo-verbose [on|off]</info>'),
+                            style=NEO_STYLE,
+                        )
+                    else:
+                        msg = self.neo_ai.toggle_verbose(state)
+                        print_formatted_text(
+                            HTML(f'<ansiblue><b>{msg}</b></ansiblue>'),
+                            style=NEO_STYLE,
+                        )
 
                 elif user_input.lower().startswith('neo-use'):
                     parts = user_input.split()
