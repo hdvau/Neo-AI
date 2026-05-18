@@ -2,7 +2,7 @@
 # Copy this file to config/config.yaml and fill in your values.
 # NEVER commit config.yaml — it contains credentials.
 
-# Operation mode — choose one: "ollama" | "lm_studio" | "digital_ocean"
+# Operation mode — choose one: "ollama" | "lm_studio" | "claude"
 mode: "ollama"
 
 # ── Ollama (local, no API key required) ──────────────────────────────────────
@@ -20,12 +20,23 @@ lm_studio_config:
   input_prefix: "### Instruction:"       # Optional — leave empty for most models
   input_suffix: "### Response:"
 
-# ── DigitalOcean GenAI (cloud) ────────────────────────────────────────────────
-digital_ocean_config:
-  agent_id: "your-agent-id"
-  agent_key: "your-agent-key"
-  agent_endpoint: "https://your-endpoint.app/api/v1"
-  model: "model-name"
+# ── OpenAI (cloud) ────────────────────────────────────────────────────────────
+# Get your API key at: https://platform.openai.com
+# The key can also be set via the OPENAI_API_KEY environment variable.
+openai_config:
+  api_key: "sk-..."            # or leave empty and export OPENAI_API_KEY
+  model: "gpt-4o"              # other options: gpt-4-turbo, gpt-3.5-turbo, o1
+  api_url: "https://api.openai.com/v1"  # override for Azure OpenAI or compatible APIs
+  temperature: 1               # reasoning models (o1, o3, gpt-5.x) require 1; lower for gpt-4o
+
+# ── Anthropic Claude (cloud) ──────────────────────────────────────────────────
+# Get your API key at: https://console.anthropic.com
+# The key can also be set via the ANTHROPIC_API_KEY environment variable
+# instead of storing it in this file.
+claude_config:
+  api_key: "sk-ant-..."          # or leave empty and export ANTHROPIC_API_KEY
+  model: "claude-opus-4-5"       # other options: claude-3-5-sonnet-20241022
+  max_tokens: 4096
 
 # ── Command Approval ──────────────────────────────────────────────────────────
 command_approval:
@@ -37,3 +48,7 @@ stream: true
 
 # ── History ──────────────────────────────────────────────────────────────────
 max_history_messages: 40
+
+# ── Command execution ─────────────────────────────────────────────────────────
+# Timeout in seconds per command. Increase for long-running tasks.
+command_timeout: 120

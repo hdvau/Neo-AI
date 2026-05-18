@@ -34,18 +34,38 @@ def load_config():
 
 def _validate_config(config: dict) -> None:
     """Check that the required keys are present for the configured mode."""
+    import os as _os
     mode = config.get('mode', 'lm_studio')
-    valid_modes = ('lm_studio', 'ollama', 'digital_ocean')
+    valid_modes = ('lm_studio', 'ollama', 'claude', 'openai')
 
     if mode not in valid_modes:
         print(f"Error: Unknown mode '{mode}' in config.yaml. Valid modes: {', '.join(valid_modes)}")
         sys.exit(1)
 
-    if mode == 'digital_ocean':
-        do = config.get('digital_ocean_config', {})
-        missing = [k for k in ('agent_id', 'agent_key', 'agent_endpoint', 'model') if not do.get(k)]
-        if missing:
-            print(f"Error: Missing digital_ocean_config keys: {', '.join(missing)}")
+    if mode == 'openai':
+        openai_cfg = config.get('openai_config', {})
+        api_key = openai_cfg.get('api_key') or _os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            print("Error: An OpenAI API key is required for openai mode.")
+            print("  Option 1: set 'openai_config.api_key' in config.yaml")
+            print("  Option 2: export OPENAI_API_KEY=sk-...")
+            sys.exit(1)
+        if not openai_cfg.get('model'):
+            print("Error: 'openai_config.model' is required in config.yaml.")
+            print("  Example: gpt-4o")
+            sys.exit(1)
+
+    elif mode == 'claude':
+        claude = config.get('claude_config', {})
+        api_key = claude.get('api_key') or _os.environ.get('ANTHROPIC_API_KEY')
+        if not api_key:
+            print("Error: An Anthropic API key is required for Claude mode.")
+            print("  Option 1: set 'claude_config.api_key' in config.yaml")
+            print("  Option 2: export ANTHROPIC_API_KEY=sk-ant-...")
+            sys.exit(1)
+        if not claude.get('model'):
+            print("Error: 'claude_config.model' is required in config.yaml.")
+            print("  Example: claude-opus-4-5")
             sys.exit(1)
 
     elif mode == 'ollama':
