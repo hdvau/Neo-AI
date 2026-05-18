@@ -62,6 +62,9 @@ class NeoAI:
             openai.api_base = openai_cfg.get('api_url', 'https://api.openai.com/v1')
             openai.api_key = openai_cfg.get('api_key') or os.environ.get('OPENAI_API_KEY', '')
             self.model = openai_cfg.get('model', 'gpt-4o')
+            # Reasoning models (o1, o3, gpt-5.x …) only accept temperature=1.
+            # Use 1 as the safe default; users can lower it for non-reasoning models.
+            self.temperature = openai_cfg.get('temperature', 1)
 
         elif self.mode == 'ollama':
             ollama_cfg = config.get('ollama_config', {})
@@ -69,6 +72,7 @@ class NeoAI:
             # Ollama requires no real key but the openai library needs a non-empty value.
             openai.api_key = ollama_cfg.get('api_key', 'ollama')
             self.model = ollama_cfg['model']
+            self.temperature = ollama_cfg.get('temperature', 0.7)
 
         else:
             # lm_studio mode — support both nested (lm_studio_config.*)
@@ -77,6 +81,7 @@ class NeoAI:
             openai.api_base = lm_cfg.get('api_url') or config.get('api_url', '')
             openai.api_key = lm_cfg.get('api_key') or config.get('api_key', '')
             self.model = lm_cfg.get('model') or config.get('model', '')
+            self.temperature = lm_cfg.get('temperature', 0.7)
 
         self.lm_studio_config = config.get('lm_studio_config', {})
         self.history = []
@@ -332,7 +337,7 @@ class NeoAI:
             completion = openai.ChatCompletion.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.7,
+                temperature=self.temperature,
                 stream=self.is_streaming_mode,
             )
 
@@ -356,8 +361,8 @@ class NeoAI:
             return self._process_response(full_response)
 
         except Exception as e:
-            print(f"Error while querying LM Studio: {e}")
-            return "An error occurred while querying LM Studio."
+            print(f"Error while querying {self.mode} ({self.model}): {e}")
+            return f"An error occurred while querying {self.mode}."
 
     def _query_raw(self, prompt: str) -> str:
         """Query the model and return the response text WITHOUT processing MCP tags.
@@ -373,7 +378,7 @@ class NeoAI:
             completion = openai.ChatCompletion.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.7,
+                temperature=self.temperature,
                 stream=self.is_streaming_mode,
             )
 
@@ -394,7 +399,7 @@ class NeoAI:
             return full_response.strip()
 
         except Exception as e:
-            print(f"Error while querying model: {e}")
+            print(f"Error while querying {self.mode} ({self.model}): {e}")
             return ""
 
     # ── Runtime mode switching ────────────────────────────────────────────────
@@ -455,12 +460,14 @@ class NeoAI:
                 openai.api_base = openai_cfg.get('api_url', 'https://api.openai.com/v1')
                 openai.api_key = api_key
                 self.model = model or openai_cfg.get('model', 'gpt-4o')
+                self.temperature = openai_cfg.get('temperature', 1)
 
             elif mode == 'ollama':
                 ollama_cfg = self.config.get('ollama_config', {})
                 openai.api_base = ollama_cfg.get('api_url', 'http://localhost:11434/v1')
                 openai.api_key = 'ollama'
                 self.model = model or ollama_cfg.get('model', '')
+                self.temperature = ollama_cfg.get('temperature', 0.7)
                 if not self.model:
                     return (
                         "Specify a model name, e.g.: "
@@ -480,6 +487,7 @@ class NeoAI:
                     or lm_cfg.get('model')
                     or self.config.get('model', '')
                 )
+                self.temperature = lm_cfg.get('temperature', 0.7)
 
             self.mode = mode
             logging.info("Switched to mode=%s model=%s", self.mode, self.model)

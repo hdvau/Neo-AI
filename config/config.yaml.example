@@ -27,6 +27,7 @@ openai_config:
   api_key: "sk-..."            # or leave empty and export OPENAI_API_KEY
   model: "gpt-4o"              # other options: gpt-4-turbo, gpt-3.5-turbo, o1
   api_url: "https://api.openai.com/v1"  # override for Azure OpenAI or compatible APIs
+  temperature: 1               # reasoning models (o1, o3, gpt-5.x) require 1; lower for gpt-4o
 
 # ── Anthropic Claude (cloud) ──────────────────────────────────────────────────
 # Get your API key at: https://console.anthropic.com
