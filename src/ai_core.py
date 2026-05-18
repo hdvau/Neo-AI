@@ -1,18 +1,19 @@
-import httpx
-import jwt
-import json
 import logging
 import os
 import platform
 import shutil
-import time
 from src.command_executor import execute_command_in_terminal, execute_command
 from src.utils import load_persistent_memory
 from src.mcp_protocol import mcp  # Import the MCP singleton
 import openai
-from src.token_manager import TokenManager
 from src.command_executor import wait_for_command_completion
 from src.approval_handler import ApprovalHandler
+
+try:
+    import anthropic as _anthropic_sdk
+    _ANTHROPIC_AVAILABLE = True
+except ImportError:
+    _ANTHROPIC_AVAILABLE = False
 
 # Clear all proxy environment variables
 os.environ.pop('http_proxy', None)
@@ -38,16 +39,22 @@ class NeoAI:
         self.is_streaming_mode = config.get('stream', True)
         self.config = config
 
-        if self.mode == 'digital_ocean':
-            self.token_manager = TokenManager(
-                agent_id=config['digital_ocean_config']['agent_id'],
-                agent_key=config['digital_ocean_config']['agent_key'],
-                auth_api_url="https://cluster-api.do-ai.run/v1"
-            )
-            self.access_token = self.token_manager.get_valid_access_token()
-            self.token_timestamp = time.time()
-            self.agent_endpoint = config['digital_ocean_config']['agent_endpoint']
-            self.model = config['digital_ocean_config']['model']
+        if self.mode == 'claude':
+            if not _ANTHROPIC_AVAILABLE:
+                raise ImportError(
+                    "The 'anthropic' package is required for Claude mode.\n"
+                    "Install it with: pip install anthropic"
+                )
+            claude_cfg = config.get('claude_config', {})
+            api_key = claude_cfg.get('api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                raise ValueError(
+                    "An Anthropic API key is required for Claude mode.\n"
+                    "Set 'claude_config.api_key' in config.yaml or export ANTHROPIC_API_KEY."
+                )
+            self.model = claude_cfg.get('model', 'claude-opus-4-5')
+            self._claude_max_tokens = claude_cfg.get('max_tokens', 4096)
+            self._anthropic_client = _anthropic_sdk.Anthropic(api_key=api_key)
 
         elif self.mode == 'ollama':
             ollama_cfg = config.get('ollama_config', {})
@@ -140,31 +147,6 @@ class NeoAI:
             self.history = self.history[:1] + self.history[-keep:]
             logging.debug("History trimmed to %d messages.", len(self.history))
 
-    def _ensure_valid_token(self):
-        """Check that the token is still valid and renew it if necessary"""
-        if self.mode != 'digital_ocean':
-            return
-
-        # Check token every 15 minutes or in case of 401 error
-        current_time = time.time()
-        token_age = current_time - self.token_timestamp
-
-        if token_age > 900:  # 15 minutes
-            try:
-                logging.info("Token age > 15 minutes, refreshing...")
-                self.access_token = self.token_manager.get_valid_access_token()
-                self.token_timestamp = current_time
-            except Exception as e:
-                logging.error(f"Error refreshing token: {e}")
-                # Attempt to completely reset token management
-                self.token_manager = TokenManager(
-                    agent_id=self.config['digital_ocean_config']['agent_id'],
-                    agent_key=self.config['digital_ocean_config']['agent_key'],
-                    auth_api_url="https://cluster-api.do-ai.run/v1"
-                )
-                self.access_token = self.token_manager.get_valid_access_token()
-                self.token_timestamp = current_time
-
     @staticmethod
     def _gather_system_info() -> str:
         """Return a concise, structured summary of the host OS for the system context.
@@ -241,6 +223,92 @@ class NeoAI:
         full_context = f"{context_data}\n\n{initial_context}</context>"
         self.context_initialized = True
         return full_context
+
+    # ── Claude (Anthropic) ───────────────────────────────────────────────────
+
+    def _claude_messages(self) -> tuple:
+        """Split history into (system_prompt, messages_list) for the Claude API.
+
+        The Anthropic SDK does not accept a 'system' role inside the messages
+        array — it must be passed as a separate `system=` parameter.
+        Only 'user' and 'assistant' roles are allowed in the messages list.
+        """
+        system = ""
+        messages = []
+        for msg in self.history:
+            if msg["role"] == "system":
+                system = msg["content"]
+            else:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+        return system, messages
+
+    def _query_claude(self, prompt: str, clear_thinking: bool = False) -> str:
+        """Stream a Claude response and process MCP tags in the reply."""
+        system, messages = self._claude_messages()
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            full_response = ""
+            is_first_chunk = True
+
+            with self._anthropic_client.messages.stream(
+                model=self.model,
+                max_tokens=self._claude_max_tokens,
+                system=system,
+                messages=messages,
+            ) as stream:
+                for text in stream.text_stream:
+                    if text:
+                        if is_first_chunk:
+                            if clear_thinking:
+                                print('\r' + ' ' * 30 + '\r', end="", flush=True)
+                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                            is_first_chunk = False
+                        print(text, end='', flush=True)
+                        full_response += text
+
+            print()
+            return self._process_response(full_response)
+
+        except Exception as e:
+            print(f"Error while querying Claude: {e}")
+            return "An error occurred while querying Claude."
+
+    def _query_claude_raw(self, prompt: str) -> str:
+        """Claude follow-up query that skips MCP tag processing.
+
+        Used for sending command output back for summarisation so the model's
+        reply cannot trigger another round of command execution.
+        """
+        system, messages = self._claude_messages()
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            full_response = ""
+            is_first_chunk = True
+
+            with self._anthropic_client.messages.stream(
+                model=self.model,
+                max_tokens=self._claude_max_tokens,
+                system=system,
+                messages=messages,
+            ) as stream:
+                for text in stream.text_stream:
+                    if text:
+                        if is_first_chunk:
+                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                            is_first_chunk = False
+                        print(text, end='', flush=True)
+                        full_response += text
+
+            print()
+            return full_response.strip()
+
+        except Exception as e:
+            logging.error("Claude raw query failed: %s", e)
+            return ""
+
+    # ── Ollama / LM Studio (OpenAI-compatible) ───────────────────────────────
 
     def _query_lm_studio(self, prompt, clear_thinking=False):
         """Query the model, stream output to the terminal, then process MCP tags."""
@@ -322,153 +390,7 @@ class NeoAI:
             print(f"Error while querying model: {e}")
             return ""
 
-    def _query_digitalocean(self, prompt, clear_thinking=False):
-        self._ensure_valid_token()
-
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": self.history + [{"role": "user", "content": prompt}],
-            "stream": True,
-        }
-
-        max_retries = 2
-        retry_count = 0
-
-        while retry_count < max_retries:
-            try:
-                with httpx.stream(
-                        "POST",
-                        f"{self.agent_endpoint}/chat/completions",
-                        json=payload,
-                        headers=headers,
-                        timeout=30.0
-                ) as response:
-                    response.raise_for_status()
-
-                    is_first_chunk = True
-                    assistant_response = ""
-
-                    for line in response.iter_lines():
-                        line = line.strip()
-                        if line.startswith("data:"):
-                            line = line[len("data:"):].strip()
-
-                        if line:
-                            try:
-                                chunk = json.loads(line)
-                                if "choices" in chunk and chunk["choices"]:
-                                    content = chunk["choices"][0].get("delta", {}).get("content", "")
-                                    if content:
-                                        if is_first_chunk:
-                                            if clear_thinking:
-                                                print('\r' + ' ' * 30 + '\r', end="", flush=True)
-                                            print("\033[1;34mNeo:\033[0m ", end="", flush=True)
-                                            is_first_chunk = False
-                                        print(content, end="", flush=True)
-                                        assistant_response += content
-                            except json.JSONDecodeError:
-                                if line == "[DONE]":
-                                    break
-                                continue
-                    print()
-
-                    if assistant_response.strip():
-                        self.history.append({"role": "assistant", "content": assistant_response.strip()})
-                        return self._process_response(assistant_response.strip())
-                    return ""
-
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 401 and retry_count < max_retries:
-                    retry_count += 1
-                    # Force token refresh
-                    self.token_manager = TokenManager(
-                        agent_id=self.config['digital_ocean_config']['agent_id'],
-                        agent_key=self.config['digital_ocean_config']['agent_key'],
-                        auth_api_url="https://cluster-api.do-ai.run/v1"
-                    )
-                    self.access_token = self.token_manager.get_valid_access_token()
-                    self.token_timestamp = time.time()
-
-                    # Update header with new token
-                    headers["Authorization"] = f"Bearer {self.access_token}"
-                    continue
-                else:
-                    print(f"Details: {e}")
-                    break
-
-            except httpx.ReadTimeout:
-                retry_count += 1
-                if retry_count < max_retries:
-                    self.access_token = self.token_manager.get_valid_access_token()
-                    self.token_timestamp = time.time()
-                    headers["Authorization"] = f"Bearer {self.access_token}"
-                    continue
-                else:
-                    print("Failed after multiple attempts.")
-                    break
-
-            except Exception as e:
-                import traceback
-                print(f"\nDetailed error: {e}")
-                print(traceback.format_exc())
-                break
-
-        return "Sorry, I couldn't get a response. Please try again."
-
-    def _query_digitalocean_raw(self, prompt: str) -> str:
-        """DigitalOcean follow-up query that skips MCP tag processing.
-
-        Mirrors _query_raw() for the DO backend — returns plain text only,
-        preventing the same infinite-loop risk as in the Ollama/LM Studio path.
-        """
-        self._ensure_valid_token()
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": self.history + [{"role": "user", "content": prompt}],
-            "stream": True,
-        }
-        try:
-            with httpx.stream(
-                "POST",
-                f"{self.agent_endpoint}/chat/completions",
-                json=payload,
-                headers=headers,
-                timeout=30.0,
-            ) as response:
-                response.raise_for_status()
-                is_first_chunk = True
-                assistant_response = ""
-                for line in response.iter_lines():
-                    line = line.strip()
-                    if line.startswith("data:"):
-                        line = line[len("data:"):].strip()
-                    if line:
-                        try:
-                            chunk = json.loads(line)
-                            if "choices" in chunk and chunk["choices"]:
-                                content = chunk["choices"][0].get("delta", {}).get("content", "")
-                                if content:
-                                    if is_first_chunk:
-                                        print("\033[1;34mNeo:\033[0m ", end="", flush=True)
-                                        is_first_chunk = False
-                                    print(content, end="", flush=True)
-                                    assistant_response += content
-                        except json.JSONDecodeError:
-                            if line == "[DONE]":
-                                break
-                print()
-                return assistant_response.strip()
-        except Exception as e:
-            logging.error("DO raw query failed: %s", e)
-            return ""
+    # ── Main dispatch ─────────────────────────────────────────────────────────
 
     def query(self, prompt, clear_thinking=False):
         try:
@@ -479,14 +401,16 @@ class NeoAI:
             self.history.append({"role": "user", "content": prompt})
             self._trim_history()
 
-            if self.mode == 'digital_ocean':
-                return self._query_digitalocean(prompt, clear_thinking)
+            if self.mode == 'claude':
+                response = self._query_claude(prompt, clear_thinking)
             else:
                 # Both 'lm_studio' and 'ollama' use the OpenAI-compatible API.
                 response = self._query_lm_studio(prompt, clear_thinking)
-                if response:
-                    self.history.append({"role": "assistant", "content": response})
-                return response
+
+            if response:
+                self.history.append({"role": "assistant", "content": response})
+            return response
+
         except Exception as e:
             import traceback
             print(f"Details: {e}")
@@ -495,7 +419,6 @@ class NeoAI:
     def _process_response(self, response):
         """
         Process the AI response and handle MCP protocol commands.
-        This replaces the old system tag processing with the new MCP protocol.
 
         Args:
             response: Text response from the AI
@@ -510,9 +433,6 @@ class NeoAI:
                 require_approval=self.require_approval,
                 auto_approve=self.auto_approve_all
             )
-
-            # Log the MCP results for debugging
-           # print(f"DEBUG - MCP results: {mcp_results}")
 
             # Check if any protocols were executed
             follow_up_messages = []
@@ -547,16 +467,16 @@ class NeoAI:
                     follow_up_messages.append(follow_up_prompt)
 
             # If we have follow-up messages, send them to the AI for summarisation.
-            # Use _query_raw() — NOT _query_lm_studio() — so the model's summary
-            # response is never fed back into _process_response(). Without this,
-            # any MCP tag in the summary would trigger another command execution,
-            # causing an infinite approval/execution loop.
+            # Use the *_raw() variant — NOT the main query method — so the model's
+            # summary response is never fed back into _process_response(). Without
+            # this, any MCP tag in the summary would trigger another command
+            # execution, causing an infinite approval/execution loop.
             if follow_up_messages:
                 combined_prompt = "\n\n".join(follow_up_messages)
                 self.history.append({"role": "user", "content": combined_prompt})
 
-                if self.mode == "digital_ocean":
-                    summary = self._query_digitalocean_raw(combined_prompt)
+                if self.mode == "claude":
+                    summary = self._query_claude_raw(combined_prompt)
                 else:
                     summary = self._query_raw(combined_prompt)
 
