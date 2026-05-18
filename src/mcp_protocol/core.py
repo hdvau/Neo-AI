@@ -35,25 +35,43 @@ class MCPProtocol:
         """
         Parse all MCP protocol tags in the provided text.
 
+        Identical (protocol, command) pairs are deduplicated: reasoning
+        models (o1, o3, gpt-5.x …) sometimes emit the same tag two or
+        three times in one response. Running the same command multiple
+        times is never useful and would show multiple approval dialogs
+        for the exact same operation.
+
         Args:
             text: The text to parse for MCP tags
 
         Returns:
-            List of tuples containing (protocol_name, command_content)
+            List of unique (protocol_name, command_content) tuples in
+            the order they first appear.
         """
-        mcp_tags = []
+        mcp_tags: List[Tuple[str, str]] = []
+        seen: set = set()
 
         # Extract MCP tags
         mcp_matches = self.mcp_pattern.findall(text)
         for protocol, content in mcp_matches:
-            mcp_tags.append((protocol.lower(), content.strip()))
+            pair = (protocol.lower(), content.strip())
+            if pair not in seen:
+                seen.add(pair)
+                mcp_tags.append(pair)
+            else:
+                logger.debug(
+                    "Duplicate MCP tag ignored: %s / %s…",
+                    protocol, content.strip()[:40],
+                )
 
         # Extract legacy tags (for backward compatibility)
         for pattern in self.legacy_patterns:
             legacy_matches = pattern.findall(text)
             for content in legacy_matches:
-                # Map legacy tags to the terminal protocol
-                mcp_tags.append(("terminal", content.strip()))
+                pair = ("terminal", content.strip())
+                if pair not in seen:
+                    seen.add(pair)
+                    mcp_tags.append(pair)
 
         return mcp_tags
 
@@ -72,6 +90,11 @@ class MCPProtocol:
             Dictionary with execution results for each protocol
         """
         results = {}
+        # Track how many times each protocol name has been seen so that
+        # multiple <mcp:terminal> tags in one response get unique keys
+        # (terminal, terminal_1, terminal_2, …) instead of overwriting
+        # each other.
+        protocol_counts: Dict[str, int] = {}
 
         try:
             # Extract all MCP tags
@@ -80,18 +103,23 @@ class MCPProtocol:
             for protocol, content in mcp_tags:
                 logger.debug(f"Processing {protocol} protocol with content: {content[:50]}...")
 
+                # Build a unique key for this invocation
+                count = protocol_counts.get(protocol, 0)
+                protocol_counts[protocol] = count + 1
+                key = protocol if count == 0 else f"{protocol}_{count}"
+
                 if self.registry.has_handler(protocol):
                     # Get the handler for this protocol
                     handler = self.registry.get_handler(protocol)
 
                     # Execute the handler with the content
                     result = handler.handle(content, require_approval, auto_approve)
-                    results[protocol] = result
+                    results[key] = result
 
-                    logger.debug(f"Protocol {protocol} execution completed")
+                    logger.debug(f"Protocol {protocol} (key={key}) execution completed")
                 else:
                     logger.warning(f"Unknown protocol '{protocol}'. Ignoring command: {content}")
-                    results[protocol] = {"error": f"Unknown protocol '{protocol}'"}
+                    results[key] = {"error": f"Unknown protocol '{protocol}'"}
 
         except Exception as e:
             logger.error(f"Error processing MCP tags: {str(e)}")

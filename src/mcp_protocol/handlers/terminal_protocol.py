@@ -1,87 +1,67 @@
 """
 Terminal protocol handler for MCP.
-This protocol handles shell command execution.
+Executes shell commands inline in the current terminal (works in SSH / headless).
 """
 
 import logging
+import os
+import sys
 from typing import Dict, Any
 from ..registry import ProtocolHandler
-import sys
-import os
 
-# Get the parent directory to import Neo modules
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
 sys.path.append(parent_dir)
 
-# Now we can import from src
-from src.command_executor import execute_command_in_terminal, wait_for_command_completion
+from src.command_executor import execute_command_inline
 from src.approval_handler import ApprovalHandler
 
 logger = logging.getLogger("mcp_protocol.terminal")
 
+_DEFAULT_TIMEOUT = 120  # seconds
+
 
 class TerminalProtocolHandler(ProtocolHandler):
-    """Handler for terminal protocol commands."""
+    """Execute shell commands inline — no separate window required."""
 
-    def __init__(self):
-        """Initialize the terminal protocol handler."""
+    def __init__(self, command_timeout: int = _DEFAULT_TIMEOUT):
         super().__init__("terminal")
+        self.command_timeout = command_timeout
 
     def handle(self, command: str, require_approval: bool, auto_approve: bool) -> Dict[str, Any]:
-        """
-        Handle terminal protocol commands (shell command execution).
-
-        Args:
-            command: The shell command to execute
-            require_approval: Whether approval is required
-            auto_approve: Whether to auto-approve
-
-        Returns:
-            Dictionary with execution results
-        """
-        result = {
+        result: Dict[str, Any] = {
             "command": command,
             "executed": False,
             "output": "",
-            "approved": False
+            "approved": False,
         }
 
         try:
-            logger.debug(f"Executing terminal command: {command}")
+            logger.debug("Terminal command requested: %s", command)
 
-            # Request approval if required
             approval_handler = ApprovalHandler(require_approval, auto_approve)
-            approved, option = approval_handler.request_approval(command)
-
+            approved, _ = approval_handler.request_approval(command)
             result["approved"] = approved
 
             if not approved:
                 result["output"] = "Command execution was denied."
                 return result
 
-            # Execute the approved command
-            temp_file = execute_command_in_terminal(command)
-            if temp_file:
-                command_output = wait_for_command_completion(temp_file)
-                result["output"] = command_output
-                result["executed"] = True
-                logger.debug("Command executed successfully")
-            else:
-                result["output"] = "Failed to execute command."
-                logger.error("Failed to execute command")
+            # Run inline — output streams to the current terminal in real-time.
+            output = execute_command_inline(command, timeout=self.command_timeout)
+            result["output"] = output
+            result["executed"] = True
+            logger.debug("Command completed, output length: %d chars", len(output))
 
         except Exception as e:
-            logger.error(f"Error executing terminal command: {str(e)}")
+            logger.error("Error executing terminal command: %s", e)
             result["error"] = str(e)
 
         return result
 
 
-# Create singleton instance
 handler = TerminalProtocolHandler()
 
 
 def register():
-    """Register this protocol handler."""
     from .. import mcp
     mcp.registry.register_handler(handler)

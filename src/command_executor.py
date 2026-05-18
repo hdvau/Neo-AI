@@ -443,34 +443,24 @@ done
             return f"Error reading command output: {str(e)}"
 
 # Function for simple command execution (without terminal)
-def execute_command(command):
-    """
-    Execute a command and return its output.
+def execute_command(command: str) -> str:
+    """Execute a command silently and return its output as a string.
 
-    Args:
-        command (str): Command to execute
-
-    Returns:
-        str: Command output or error message
+    Used for internal context gathering (pwd, ls at startup). Does not print
+    anything to the terminal.
     """
     try:
         logging.debug(f"Executing simple command: {command}")
-
-        # Always run via ["bash", "-c", command] instead of shell=True.
-        # shell=True spawns a second shell layer which can cause unexpected
-        # re-evaluation of shell metacharacters in AI-generated command strings.
         result = subprocess.run(
             ["bash", "-c", command],
             capture_output=True,
             text=True,
             timeout=30,
         )
-
         if result.returncode == 0:
             return result.stdout
         else:
             return f"Error: Command failed with exit code {result.returncode}\n{result.stderr}"
-
     except subprocess.TimeoutExpired:
         return "Error: Command execution timed out after 30 seconds"
     except FileNotFoundError:
@@ -479,6 +469,70 @@ def execute_command(command):
         return f"Error: Permission denied when executing: {command}"
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+def execute_command_inline(command: str, timeout: int = 120) -> str:
+    """Execute a command and stream its output directly to the current terminal.
+
+    This is the default execution path for user-requested commands. It works
+    in any environment — SSH sessions, headless servers, macOS, Linux — because
+    it never opens a second terminal window.
+
+    Output is printed line by line as it arrives (real-time streaming) and also
+    returned as a string so the AI can summarise the result.
+
+    Args:
+        command: Shell command to execute.
+        timeout:  Max seconds to wait (default 120). Long-running commands
+                  (backups, large downloads) can increase this via config.
+
+    Returns:
+        Combined stdout + stderr output as a string.
+    """
+    print("\033[90m" + "─" * 50 + "\033[0m")   # dim separator
+
+    output_lines: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            ["bash", "-c", command],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,   # merge stderr into stdout stream
+            text=True,
+            bufsize=1,                  # line-buffered
+        )
+
+        # Stream output line by line so the user sees progress in real-time.
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            output_lines.append(line)
+
+        proc.wait(timeout=timeout)
+        exit_code = proc.returncode
+
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        timeout_msg = f"\n[neo] Command timed out after {timeout}s\n"
+        print(timeout_msg, end="")
+        output_lines.append(timeout_msg)
+        exit_code = -1
+    except FileNotFoundError:
+        msg = "Error: bash not found\n"
+        print(msg, end="")
+        return msg
+    except Exception as e:
+        msg = f"Error: {e}\n"
+        print(msg, end="")
+        return msg
+
+    print("\033[90m" + "─" * 50 + "\033[0m")   # dim separator
+
+    if exit_code != 0:
+        exit_line = f"[exit code {exit_code}]\n"
+        output_lines.append(exit_line)
+
+    return "".join(output_lines)
 
 # Create a singleton instance
 terminal_executor = PersistentTerminalExecutor()
