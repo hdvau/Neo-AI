@@ -2,15 +2,22 @@
 # Copy this file to config/config.yaml and fill in your values.
 # NEVER commit config.yaml — it contains credentials.
 
-# Operation mode: "lm_studio" (local) or "digital_ocean" (cloud)
-mode: "digital_ocean"
+# Operation mode — choose one: "ollama" | "lm_studio" | "digital_ocean"
+mode: "ollama"
 
-# ── LM Studio (local model) ───────────────────────────────────────────────────
+# ── Ollama (local, no API key required) ──────────────────────────────────────
+# Install: https://ollama.com  |  Pull a model: ollama pull llama3.2
+# List available models: ollama list
+ollama_config:
+  api_url: "http://localhost:11434/v1"   # Ollama's OpenAI-compatible endpoint
+  model: "llama3.2"                       # Change to any model you have pulled
+
+# ── LM Studio (local, no API key required) ───────────────────────────────────
 lm_studio_config:
-  api_url: "http://127.0.0.1:1234/v1"   # Default LM Studio server address
-  api_key: ""                             # LM Studio does not require an API key
+  api_url: "http://127.0.0.1:1234/v1"
+  api_key: ""
   model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
-  input_prefix: "### Instruction:"
+  input_prefix: "### Instruction:"       # Optional — leave empty for most models
   input_suffix: "### Response:"
 
 # ── DigitalOcean GenAI (cloud) ────────────────────────────────────────────────
@@ -22,12 +29,11 @@ digital_ocean_config:
 
 # ── Command Approval ──────────────────────────────────────────────────────────
 command_approval:
-  require_approval: true        # Prompt the user before executing any command
+  require_approval: true        # Prompt before executing any command
   auto_approve_all: false       # DANGER: skips approval for every command
 
 # ── Streaming ────────────────────────────────────────────────────────────────
 stream: true
 
 # ── History ──────────────────────────────────────────────────────────────────
-# Maximum number of messages kept in memory. Prevents unbounded growth.
 max_history_messages: 40
