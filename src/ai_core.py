@@ -69,6 +69,54 @@ class NeoAI:
         # growth and token-limit breaches. Keeps the last N message pairs.
         self._max_history_messages: int = config.get('max_history_messages', 40)
 
+        # Load the system prompt (PrePromt.md) so the model knows to use
+        # MCP tags for command execution. Without this the model answers as a
+        # plain chatbot and never generates <mcp:terminal> tags.
+        self._load_system_prompt(config)
+
+    def _load_system_prompt(self, config: dict) -> None:
+        """Prepend the system prompt to history as a 'system' role message.
+
+        Looks for the prompt file at (in order):
+          1. config['system_prompt_path']  — explicit override in config.yaml
+          2. config/PrePromt.md            — default location in the project
+        Falls back to a minimal inline prompt when neither file is found.
+        """
+        import os as _os
+
+        script_dir = _os.path.dirname(_os.path.realpath(__file__))
+        project_root = _os.path.join(script_dir, "..")
+
+        candidates = [
+            config.get("system_prompt_path"),
+            _os.path.join(project_root, "config", "PrePromt.md"),
+        ]
+
+        system_text = None
+        for path in candidates:
+            if path and _os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        system_text = f.read().strip()
+                    logging.info("System prompt loaded from: %s", path)
+                    break
+                except OSError as e:
+                    logging.warning("Could not read system prompt from %s: %s", path, e)
+
+        if not system_text:
+            logging.warning(
+                "config/PrePromt.md not found — using minimal fallback system prompt. "
+                "The model may not generate MCP tags correctly."
+            )
+            system_text = (
+                "You are Neo, a Linux terminal AI assistant. "
+                "Use MCP protocol tags to execute commands: "
+                "<mcp:terminal>command</mcp:terminal>. "
+                "Always use these tags when the user asks you to run something."
+            )
+
+        self.history = [{"role": "system", "content": system_text}]
+
     def _trim_history(self) -> None:
         """Drop oldest messages when history exceeds the configured limit.
 
