@@ -36,13 +36,26 @@ def _validate_config(config: dict) -> None:
     """Check that the required keys are present for the configured mode."""
     import os as _os
     mode = config.get('mode', 'lm_studio')
-    valid_modes = ('lm_studio', 'ollama', 'claude')
+    valid_modes = ('lm_studio', 'ollama', 'claude', 'openai')
 
     if mode not in valid_modes:
         print(f"Error: Unknown mode '{mode}' in config.yaml. Valid modes: {', '.join(valid_modes)}")
         sys.exit(1)
 
-    if mode == 'claude':
+    if mode == 'openai':
+        openai_cfg = config.get('openai_config', {})
+        api_key = openai_cfg.get('api_key') or _os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            print("Error: An OpenAI API key is required for openai mode.")
+            print("  Option 1: set 'openai_config.api_key' in config.yaml")
+            print("  Option 2: export OPENAI_API_KEY=sk-...")
+            sys.exit(1)
+        if not openai_cfg.get('model'):
+            print("Error: 'openai_config.model' is required in config.yaml.")
+            print("  Example: gpt-4o")
+            sys.exit(1)
+
+    elif mode == 'claude':
         claude = config.get('claude_config', {})
         api_key = claude.get('api_key') or _os.environ.get('ANTHROPIC_API_KEY')
         if not api_key:

@@ -20,6 +20,14 @@ lm_studio_config:
   input_prefix: "### Instruction:"       # Optional — leave empty for most models
   input_suffix: "### Response:"
 
+# ── OpenAI (cloud) ────────────────────────────────────────────────────────────
+# Get your API key at: https://platform.openai.com
+# The key can also be set via the OPENAI_API_KEY environment variable.
+openai_config:
+  api_key: "sk-..."            # or leave empty and export OPENAI_API_KEY
+  model: "gpt-4o"              # other options: gpt-4-turbo, gpt-3.5-turbo, o1
+  api_url: "https://api.openai.com/v1"  # override for Azure OpenAI or compatible APIs
+
 # ── Anthropic Claude (cloud) ──────────────────────────────────────────────────
 # Get your API key at: https://console.anthropic.com
 # The key can also be set via the ANTHROPIC_API_KEY environment variable

@@ -56,6 +56,13 @@ class NeoAI:
             self._claude_max_tokens = claude_cfg.get('max_tokens', 4096)
             self._anthropic_client = _anthropic_sdk.Anthropic(api_key=api_key)
 
+        elif self.mode == 'openai':
+            openai_cfg = config.get('openai_config', {})
+            # Default to the real OpenAI endpoint; override for Azure or compatible APIs.
+            openai.api_base = openai_cfg.get('api_url', 'https://api.openai.com/v1')
+            openai.api_key = openai_cfg.get('api_key') or os.environ.get('OPENAI_API_KEY', '')
+            self.model = openai_cfg.get('model', 'gpt-4o')
+
         elif self.mode == 'ollama':
             ollama_cfg = config.get('ollama_config', {})
             openai.api_base = ollama_cfg.get('api_url', 'http://localhost:11434/v1')
