@@ -1,9 +1,5 @@
 # Neo AI — Terminal AI Assistant
 
-<div align="center">
-  <img src="assets/demo.gif" width="400" alt="Neo AI Terminal Demo">
-</div>
-
 Neo is an AI-powered terminal assistant for macOS and Linux. It understands natural language, executes shell commands with real-time output, and adapts to your system automatically. It supports multiple AI backends — local or cloud — and can switch between them without restarting.
 
 ---
