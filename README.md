@@ -39,7 +39,7 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 **Requirements:** Python 3.8+, pip, one of the backends above.
 
 ```bash
-git clone https://github.com/Vasco0x4/Neo-AI.git
+git clone https://github.com/hdvau/Neo-AI.git
 cd Neo-AI
 ./install.sh
 ```
@@ -245,7 +245,7 @@ Neo-AI/
 
 ## Contributing
 
-Pull requests are welcome. The project is actively developed on the `security/fix-critical-findings` branch of [hdvau/Neo-AI](https://github.com/hdvau/Neo-AI).
+Pull requests are welcome. Clone from [hdvau/Neo-AI](https://github.com/hdvau/Neo-AI) — this is the actively maintained fork with all current features.
 
 ## License
 
