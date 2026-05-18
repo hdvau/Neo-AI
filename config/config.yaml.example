@@ -37,3 +37,7 @@ stream: true
 
 # ── History ──────────────────────────────────────────────────────────────────
 max_history_messages: 40
+
+# ── Command execution ─────────────────────────────────────────────────────────
+# Timeout in seconds per command. Increase for long-running tasks.
+command_timeout: 120
