@@ -42,7 +42,7 @@ class ApprovalHandler:
             return True, None
 
         # Print the command in bash-style format
-        print_formatted_text(HTML(f"\n<prompt>neo ></prompt> <command>{command}</command>"), style=APPROVAL_STYLE)
+        print_formatted_text(HTML(f"\n<prompt>Neo ></prompt> <command>{command}</command>"), style=APPROVAL_STYLE)
 
         # Print the approval prompt with an arrow
         print_formatted_text(HTML("  <arrow>↳</arrow> <question>Execute this command? [Enter/n]:</question>"), style=APPROVAL_STYLE)
@@ -52,8 +52,6 @@ class ApprovalHandler:
 
         # Handle approval/rejection
         if user_input == 'n' or user_input == 'no':
-            print_formatted_text(HTML("  <error>✗</error>"), style=APPROVAL_STYLE)
             return False, None
         else:
-            print_formatted_text(HTML("  <success>✓</success>"), style=APPROVAL_STYLE)
             return True, None
