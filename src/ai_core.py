@@ -6,6 +6,7 @@ import shutil
 from src.command_executor import execute_command_in_terminal, execute_command
 from src.utils import load_persistent_memory
 from src.mcp_protocol import mcp  # Import the MCP singleton
+from src.model_context_loader import ModelContextLoader
 import openai
 from src.command_executor import wait_for_command_completion
 from src.approval_handler import ApprovalHandler
@@ -117,6 +118,9 @@ class NeoAI:
           1. config['system_prompt_path']  — explicit override in config.yaml
           2. config/PrePromt.md            — default location in the project
         Falls back to a minimal inline prompt when neither file is found.
+
+        After loading the base prompt, any matching model-context plugins from
+        config/model_contexts/ are appended automatically.
         """
         import os as _os
 
@@ -128,30 +132,43 @@ class NeoAI:
             _os.path.join(project_root, "config", "PrePromt.md"),
         ]
 
-        system_text = None
+        base_text = None
         for path in candidates:
             if path and _os.path.exists(path):
                 try:
                     with open(path, "r", encoding="utf-8") as f:
-                        system_text = f.read().strip()
+                        base_text = f.read().strip()
                     logging.info("System prompt loaded from: %s", path)
                     break
                 except OSError as e:
                     logging.warning("Could not read system prompt from %s: %s", path, e)
 
-        if not system_text:
+        if not base_text:
             logging.warning(
                 "config/PrePromt.md not found — using minimal fallback system prompt. "
                 "The model may not generate MCP tags correctly."
             )
-            system_text = (
+            base_text = (
                 "You are Neo, a Linux terminal AI assistant. "
                 "Use MCP protocol tags to execute commands: "
                 "<mcp:terminal>command</mcp:terminal>. "
                 "Always use these tags when the user asks you to run something."
             )
 
-        self.history = [{"role": "system", "content": system_text}]
+        # Store the base prompt so switch_mode() can rebuild without it.
+        self._base_system_prompt: str = base_text
+        self.history = [{"role": "system", "content": self._build_system_prompt()}]
+
+    def _build_system_prompt(self) -> str:
+        """Combine the base PrePromt with any matching model-context plugins.
+
+        Called once at startup and again whenever the active mode or model
+        changes so the injected context always matches the current backend.
+        """
+        extra = ModelContextLoader.load(self.mode, self.model)
+        if extra:
+            return f"{self._base_system_prompt}\n\n---\n\n{extra}"
+        return self._base_system_prompt
 
     # ── Verbose toggle ────────────────────────────────────────────────────────
 
@@ -577,6 +594,12 @@ class NeoAI:
 
             self.mode = mode
             logging.info("Switched to mode=%s model=%s", self.mode, self.model)
+
+            # Refresh the system prompt so model-context plugins match the new backend.
+            if self.history and self.history[0]["role"] == "system":
+                self.history[0]["content"] = self._build_system_prompt()
+                logging.debug("System prompt updated for mode=%s model=%s", mode, self.model)
+
             return f"Switched to {mode} — model: {self.model}"
 
         except Exception as e:
