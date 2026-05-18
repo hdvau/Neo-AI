@@ -3,6 +3,8 @@ import jwt
 import json
 import logging
 import os
+import platform
+import shutil
 import time
 from src.command_executor import execute_command_in_terminal, execute_command
 from src.utils import load_persistent_memory
@@ -163,13 +165,74 @@ class NeoAI:
                 self.access_token = self.token_manager.get_valid_access_token()
                 self.token_timestamp = current_time
 
+    @staticmethod
+    def _gather_system_info() -> str:
+        """Return a concise, structured summary of the host OS for the system context.
+
+        Uses only stdlib (platform, shutil, os) — no network, no subprocess.
+        The result is injected into the <context> block so the model knows
+        which OS it is talking to and picks the right commands from the start.
+        """
+        raw_os = platform.system()           # "Darwin" | "Linux" | "Windows"
+        os_name = {"Darwin": "macOS", "Linux": "Linux", "Windows": "Windows"}.get(raw_os, raw_os)
+
+        # Human-readable version string
+        if raw_os == "Darwin":
+            mac_ver = platform.mac_ver()[0]  # e.g. "14.5"
+            os_version = f"macOS {mac_ver}" if mac_ver else "macOS (version unknown)"
+        else:
+            # On Linux this gives the distro string; on Windows the NT version.
+            os_version = platform.version() or platform.release() or os_name
+
+        arch = platform.machine()            # e.g. "arm64", "x86_64"
+        hostname = platform.node()
+        shell = os.environ.get("SHELL", "unknown")
+
+        # Detect the available package manager(s)
+        pkg_managers = [pm for pm in ("brew", "apt", "apt-get", "dnf", "pacman", "zypper", "yum") if shutil.which(pm)]
+        pkg_info = ", ".join(pkg_managers) if pkg_managers else "none detected"
+
+        lines = [
+            "## System Information",
+            f"OS:              {os_version}",
+            f"Architecture:    {arch}",
+            f"Hostname:        {hostname}",
+            f"Shell:           {shell}",
+            f"Package manager: {pkg_info}",
+        ]
+
+        # macOS-specific reminders so the model never uses Linux-only tools
+        if raw_os == "Darwin":
+            lines += [
+                "",
+                "macOS notes (IMPORTANT):",
+                "  - Use `brew` for package management, NOT apt/apt-get/dnf/yum",
+                "  - Use `ifconfig` for network interfaces, NOT `ip addr`",
+                "  - Use `netstat -an` or `lsof -i`, NOT `ss`",
+                "  - Use `top` or `htop` (if installed), NOT `vmstat` (limited on macOS)",
+                "  - GNU coreutils may not be available; prefer BSD-style flags",
+                "  - Use `open` to launch apps/files, NOT `xdg-open`",
+            ]
+        elif raw_os == "Linux":
+            lines += [
+                "",
+                "Linux notes:",
+                "  - Use `ip addr` for network interfaces",
+                "  - Use `systemctl` for service management (if systemd)",
+            ]
+
+        return "\n".join(lines)
+
     def initialize_context(self):
         context_commands = [
             "pwd",
             "ls"
         ]
         context_data = load_persistent_memory()
+        system_info = self._gather_system_info()
+
         initial_context = "<context>\n"
+        initial_context += system_info + "\n\n"
 
         for command in context_commands:
             result = execute_command(command)
