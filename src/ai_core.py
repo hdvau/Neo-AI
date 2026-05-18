@@ -46,10 +46,21 @@ class NeoAI:
             self.token_timestamp = time.time()
             self.agent_endpoint = config['digital_ocean_config']['agent_endpoint']
             self.model = config['digital_ocean_config']['model']
+
+        elif self.mode == 'ollama':
+            ollama_cfg = config.get('ollama_config', {})
+            openai.api_base = ollama_cfg.get('api_url', 'http://localhost:11434/v1')
+            # Ollama requires no real key but the openai library needs a non-empty value.
+            openai.api_key = ollama_cfg.get('api_key', 'ollama')
+            self.model = ollama_cfg['model']
+
         else:
-            openai.api_base = config['api_url']
-            openai.api_key = config['api_key']
-            self.model = config['model']
+            # lm_studio mode — support both nested (lm_studio_config.*)
+            # and the legacy flat-key format (api_url / api_key / model).
+            lm_cfg = config.get('lm_studio_config', {})
+            openai.api_base = lm_cfg.get('api_url') or config.get('api_url', '')
+            openai.api_key = lm_cfg.get('api_key') or config.get('api_key', '')
+            self.model = lm_cfg.get('model') or config.get('model', '')
 
         self.lm_studio_config = config.get('lm_studio_config', {})
         self.history = []
@@ -111,7 +122,11 @@ class NeoAI:
         return full_context
 
     def _query_lm_studio(self, prompt, clear_thinking=False):
-        instruction = f"{self.lm_studio_config.get('input_prefix', '### Instruction:')} {prompt} {self.lm_studio_config.get('input_suffix', '### Response:')}"
+        # Ollama and plain OpenAI-compatible backends don't use LM Studio's
+        # instruction wrapping — only apply it when explicitly configured.
+        prefix = self.lm_studio_config.get('input_prefix', '')
+        suffix = self.lm_studio_config.get('input_suffix', '')
+        instruction = f"{prefix} {prompt} {suffix}".strip() if (prefix or suffix) else prompt
 
         messages = self.history.copy()
         messages.append({"role": "user", "content": instruction})
@@ -256,6 +271,7 @@ class NeoAI:
             if self.mode == 'digital_ocean':
                 return self._query_digitalocean(prompt, clear_thinking)
             else:
+                # Both 'lm_studio' and 'ollama' use the OpenAI-compatible API.
                 response = self._query_lm_studio(prompt, clear_thinking)
                 if response:
                     self.history.append({"role": "assistant", "content": response})
@@ -311,10 +327,9 @@ class NeoAI:
 
                 if self.mode == "digital_ocean":
                     return self._query_digitalocean(combined_prompt)
-                elif self.mode == "lm_studio":
-                    return self._query_lm_studio(combined_prompt)
                 else:
-                    return f"Unknown mode: {self.mode}. Unable to send follow-up prompt."
+                    # 'lm_studio' and 'ollama' both use the OpenAI-compatible path.
+                    return self._query_lm_studio(combined_prompt)
 
         except Exception as e:
             import traceback
