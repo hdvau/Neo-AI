@@ -6,7 +6,7 @@ class TerminalInterface:
     def __init__(self, neo_ai, config):
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['history', 'exit', 'neo-use']
+        self.commands = ['history', 'exit', 'neo-use', 'neo-verbose']
 
     def completer(self, text, state):
         # Expand "neo-use " to show valid modes
@@ -31,6 +31,16 @@ class TerminalInterface:
         if lower == 'history':
             print("\033[1;33mDisplaying conversation history\033[0m")
             self.display_history()
+            return True
+
+        if lower.startswith('neo-verbose'):
+            parts = user_input.split()
+            state = parts[1].lower() if len(parts) >= 2 else ""
+            if state not in ("on", "off", ""):
+                print("\033[1;33mUsage: neo-verbose [on|off]\033[0m")
+                return True
+            msg = self.neo_ai.toggle_verbose(state)
+            print(f"\033[1;34m{msg}\033[0m")
             return True
 
         if lower.startswith('neo-use'):
