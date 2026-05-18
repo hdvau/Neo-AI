@@ -483,7 +483,7 @@ class NeoAI:
 
             self.mode = mode
             logging.info("Switched to mode=%s model=%s", self.mode, self.model)
-            return f"Switched to \033[1m{mode}\033[0m — model: \033[1m{self.model}\033[0m"
+            return f"Switched to {mode} — model: {self.model}"
 
         except Exception as e:
             logging.error("switch_mode failed: %s", e)

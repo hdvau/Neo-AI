@@ -45,6 +45,8 @@ class TerminalInterface:
             mode = parts[1].lower()
             model = parts[2] if len(parts) >= 3 else ""
             msg = self.neo_ai.switch_mode(mode, model)
+            # Wrap with ANSI bold+blue — safe here because we're using plain print,
+            # not prompt_toolkit's HTML parser.
             print(f"\033[1;34m{msg}\033[0m")
             return True
 
