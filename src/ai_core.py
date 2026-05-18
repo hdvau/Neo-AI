@@ -527,8 +527,18 @@ class NeoAI:
                     command = result.get("command", "unknown command")
                     output = result.get("output", "No output")
 
-                    # Create a follow-up message for this protocol
-                    follow_up_prompt = f"The {protocol} command '{command}' was executed. Here is the result:\n{output}"
+                    # Create a follow-up message for this protocol.
+                    # The explicit instruction is critical: small models tend to
+                    # hallucinate values (wrong chip name, wrong version) instead
+                    # of quoting the actual output. Wrapping in a fenced block and
+                    # adding a "verbatim" instruction significantly reduces this.
+                    follow_up_prompt = (
+                        f"The `{protocol}` command `{command}` finished.\n"
+                        f"The EXACT output is enclosed below. "
+                        f"Summarise it using ONLY the values shown — do NOT substitute, "
+                        f"guess, or change any names, numbers, or identifiers:\n\n"
+                        f"```\n{output.strip()}\n```"
+                    )
                     follow_up_messages.append(follow_up_prompt)
 
             # If we have follow-up messages, send them to the AI for summarisation.
