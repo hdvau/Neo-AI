@@ -1,9 +1,10 @@
 """
-Tests for multiple MCP tags of the same protocol in one response.
+Tests for multiple / duplicate MCP tags in one response.
 
-Previously, two <mcp:terminal> tags in one response would collide on the
-dict key 'terminal', causing the first result to be silently overwritten
-by the second. These tests verify the counter-suffix fix in core.py.
+Two behaviours are verified:
+- Different commands of the same protocol all execute (counter-suffix keys).
+- Identical (protocol, command) pairs are deduplicated: reasoning models
+  sometimes emit the same tag two or three times; only the first must run.
 """
 
 import pytest
@@ -97,7 +98,7 @@ class TestMultipleTagsNoCollision:
         assert results["terminal"]["command"] == "echo first"
         assert results["terminal_1"]["command"] == "echo second"
 
-    def test_three_same_protocol_tags(self):
+    def test_three_different_commands_all_execute(self):
         proto, calls = self._make_proto()
         text = (
             "<mcp:terminal>a</mcp:terminal>"
@@ -116,3 +117,63 @@ class TestMultipleTagsNoCollision:
             auto_approve=True,
         )
         assert list(results.keys()) == ["terminal"]
+
+
+# ---------------------------------------------------------------------------
+# Deduplication — identical tags must not run twice
+# ---------------------------------------------------------------------------
+
+class TestDuplicateTagDeduplication:
+    """Reasoning models (o1, o3, gpt-5.x) sometimes repeat the same tag.
+    The parser must drop duplicates so the command runs only once."""
+
+    def test_duplicate_tag_deduplicated_in_parse(self):
+        proto = MCPProtocol()
+        text = (
+            "<mcp:terminal>find $HOME -name foo</mcp:terminal>\n"
+            "<mcp:terminal>find $HOME -name foo</mcp:terminal>\n"
+            "<mcp:terminal>find $HOME -name foo</mcp:terminal>"
+        )
+        tags = proto.parse_mcp_tags(text)
+        assert len(tags) == 1
+        assert tags[0] == ("terminal", "find $HOME -name foo")
+
+    def test_duplicate_tag_executes_only_once(self):
+        call_count = []
+
+        def fake_handle(cmd, require_approval, auto_approve):
+            call_count.append(cmd)
+            return {"command": cmd, "executed": True, "output": "ok", "approved": True}
+
+        proto = MCPProtocol()
+        mock_handler = MagicMock()
+        mock_handler.name = "terminal"
+        mock_handler.handle.side_effect = fake_handle
+        proto.registry.handlers = {"terminal": mock_handler}
+
+        text = (
+            "<mcp:terminal>ls -la</mcp:terminal>"
+            "<mcp:terminal>ls -la</mcp:terminal>"
+        )
+        proto.process_response(text, require_approval=False, auto_approve=True)
+
+        assert len(call_count) == 1
+
+    def test_different_commands_not_deduplicated(self):
+        proto = MCPProtocol()
+        text = (
+            "<mcp:terminal>echo hello</mcp:terminal>"
+            "<mcp:terminal>echo world</mcp:terminal>"
+        )
+        tags = proto.parse_mcp_tags(text)
+        assert len(tags) == 2
+
+    def test_same_command_different_protocols_not_deduplicated(self):
+        """Same content but different protocols must both be kept."""
+        proto = MCPProtocol()
+        text = (
+            "<mcp:terminal>connections</mcp:terminal>"
+            "<mcp:network>connections</mcp:network>"
+        )
+        tags = proto.parse_mcp_tags(text)
+        assert len(tags) == 2
