@@ -18,6 +18,24 @@ from src.approval_handler import ApprovalHandler
 
 logger = logging.getLogger("mcp_protocol.files")
 
+# Directories that the files protocol is allowed to access.
+# Paths outside these roots are rejected to prevent path-traversal attacks
+# (e.g. an AI-generated tag like <mcp:files>read:/home/user/.ssh/id_rsa</mcp:files>).
+_ALLOWED_BASE_DIRS: list[str] = [
+    os.path.expanduser("~"),   # User home — broad but necessary for a terminal assistant.
+    "/tmp",
+]
+
+
+def _is_safe_path(filepath: str) -> bool:
+    """Return True only when the resolved path is inside an allowed directory."""
+    real = os.path.realpath(os.path.abspath(filepath))
+    return any(
+        real == os.path.realpath(base) or real.startswith(os.path.realpath(base) + os.sep)
+        for base in _ALLOWED_BASE_DIRS
+    )
+
+
 class FilesProtocolHandler(ProtocolHandler):
     """Handler for files protocol commands."""
 
@@ -48,6 +66,11 @@ class FilesProtocolHandler(ProtocolHandler):
             if command.startswith("read:"):
                 logger.debug(f"Processing file read command: {command}")
                 filepath = command[5:].strip()
+
+                if not _is_safe_path(filepath):
+                    result["output"] = f"Access denied: '{filepath}' is outside allowed directories."
+                    logger.warning("Path traversal attempt blocked: %s", filepath)
+                    return result
 
                 # Request approval for file reading
                 if require_approval and not auto_approve:
@@ -80,6 +103,11 @@ class FilesProtocolHandler(ProtocolHandler):
                 parts = command[6:].strip().split(" ", 1)
                 if len(parts) == 2:
                     filepath, content = parts
+
+                    if not _is_safe_path(filepath):
+                        result["output"] = f"Access denied: '{filepath}' is outside allowed directories."
+                        logger.warning("Path traversal attempt blocked for write: %s", filepath)
+                        return result
 
                     # Request approval for file writing (always required)
                     approval_handler = ApprovalHandler(True, False)  # Always require approval for writing
@@ -124,6 +152,11 @@ class FilesProtocolHandler(ProtocolHandler):
                 parts = command[7:].strip().split(" ", 1)
                 if len(parts) == 2:
                     filepath, content = parts
+
+                    if not _is_safe_path(filepath):
+                        result["output"] = f"Access denied: '{filepath}' is outside allowed directories."
+                        logger.warning("Path traversal attempt blocked for append: %s", filepath)
+                        return result
 
                     # Request approval for file appending
                     approval_handler = ApprovalHandler(True, False)  # Always require approval for appending

@@ -1,0 +1,14 @@
+# Neo-AI Python dependencies
+# openai>=1.0.0 migration is tracked in TODO below.
+# NOTE: openai==0.28 is the last v0.x release and is no longer maintained.
+# The codebase uses the legacy openai.ChatCompletion.create() API which was
+# removed in v1.0. A separate migration task is required before upgrading.
+# See: OPEN_ITEMS.md — "openai v1.x migration"
+setuptools>=74.1.2
+openai==0.28
+pyyaml>=6.0.1
+pynput>=1.7.7
+httpx>=0.28.1
+PyJWT>=2.10.1
+prompt_toolkit>=3.0.43
+pygments>=2.17.2
