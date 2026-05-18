@@ -3,6 +3,7 @@ Persistent terminal executor for Neo AI.
 Uses a single reusable terminal window for all commands.
 """
 
+import platform
 import subprocess
 import os
 import time
@@ -12,6 +13,8 @@ import shlex
 import signal
 import atexit
 from prompt_toolkit import print_formatted_text, HTML
+
+_IS_MACOS = platform.system() == "Darwin"
 
 class PersistentTerminalExecutor:
     """Execute commands using a single persistent terminal window."""
@@ -35,10 +38,11 @@ class PersistentTerminalExecutor:
             filemode='a'
         )
 
-        # Create FIFO if it doesn't exist
+        # Create FIFO with owner-only permissions (0o600) so other users on
+        # the same host cannot inject commands through it.
         if not os.path.exists(self.fifo_path):
             try:
-                os.mkfifo(self.fifo_path)
+                os.mkfifo(self.fifo_path, 0o600)
             except Exception as e:
                 logging.error(f"Failed to create FIFO: {e}")
 
@@ -50,9 +54,18 @@ class PersistentTerminalExecutor:
         # Register cleanup on exit
         atexit.register(self._cleanup)
 
-    def _detect_terminal_type(self):
-        """Detect the available terminal emulator."""
-        terminals = [
+    def _detect_terminal_type(self) -> str:
+        """Detect the available terminal emulator for the current platform."""
+        if _IS_MACOS:
+            # Prefer iTerm2 when installed; fall back to the built-in Terminal.app.
+            if os.path.exists("/Applications/iTerm.app") or os.path.exists(
+                os.path.expanduser("~/Applications/iTerm.app")
+            ):
+                return "iterm2"
+            return "terminal_app"
+
+        # Linux — probe common emulators in preference order.
+        linux_terminals = [
             ("gnome-terminal", "gnome-terminal --"),
             ("konsole", "konsole -e"),
             ("xfce4-terminal", "xfce4-terminal -e"),
@@ -61,47 +74,56 @@ class PersistentTerminalExecutor:
             ("tilix", "tilix -e"),
             ("kitty", "kitty -e"),
             ("alacritty", "alacritty -e"),
-            ("x-terminal-emulator", "x-terminal-emulator -e")
+            ("x-terminal-emulator", "x-terminal-emulator -e"),
         ]
-
-        for terminal_cmd, launch_cmd in terminals:
+        for terminal_cmd, launch_cmd in linux_terminals:
             try:
-                result = subprocess.run(["which", terminal_cmd],
-                                      stdout=subprocess.PIPE,
-                                      stderr=subprocess.PIPE,
-                                      check=False)
+                result = subprocess.run(
+                    ["which", terminal_cmd],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                )
                 if result.returncode == 0:
                     return launch_cmd
             except Exception:
                 continue
 
-        # Default fallback
         return "x-terminal-emulator -e"
 
-    def _is_terminal_running(self):
-        """Check if the terminal process is still running."""
+    def _is_terminal_running(self) -> bool:
+        """Check if our persistent terminal script process is still alive."""
         if not os.path.exists(self.pid_file):
             return False
 
         try:
-            with open(self.pid_file, 'r') as f:
+            with open(self.pid_file, "r") as f:
                 pid = int(f.read().strip())
+        except (OSError, ValueError):
+            return False
 
-            # Check if process exists and is a bash/shell process
-            # This helps verify it's actually our terminal script
-            try:
-                with open(f"/proc/{pid}/cmdline", 'r') as cmd_file:
-                    cmdline = cmd_file.read()
-                    # Check if it's our script
-                    if "neo_terminal_script" not in cmdline:
-                        return False
-            except (IOError, FileNotFoundError):
-                return False
+        # os.kill(pid, 0) raises OSError if the process no longer exists.
+        # This works on both Linux and macOS.
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
 
-            # Process exists and is our terminal
-            return True
-        except (OSError, ValueError, ProcessLookupError):
-            # Process doesn't exist or invalid PID
+        # Verify the running process is actually our terminal script (not a
+        # recycled PID). Use platform-appropriate method.
+        try:
+            if _IS_MACOS:
+                result = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "command="],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+                cmdline = result.stdout.decode(errors="replace")
+            else:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    cmdline = f.read().decode(errors="replace")
+
+            return "neo_terminal_script" in cmdline
+        except (OSError, FileNotFoundError):
             return False
 
     def _initialize_terminal(self):
@@ -111,84 +133,59 @@ class PersistentTerminalExecutor:
             return
 
         try:
-            # Create the terminal script
+            # Write the terminal script with owner-only permissions (0o700).
+            # Using bash -c instead of eval to avoid double-evaluation of the
+            # command string (eval can re-expand $(...) and backtick sequences).
             script_path = os.path.join(self.temp_dir, "neo_terminal_script.sh")
-            with open(script_path, 'w') as f:
-                f.write('''#!/bin/bash
-echo $$ > %s
+            script_content = '''#!/bin/bash
+echo $$ > {pid_file}
 echo "Neo AI Terminal - DO NOT CLOSE THIS WINDOW"
 echo "This terminal will be used for all Neo AI commands."
 echo "---------------------------------------------------"
 
-# Function to handle commands
-process_command() {
-    # Read command from FIFO
-    command=$(cat %s)
-    
-    # Create lock file to indicate we're running a command
-    rm -f %s
-    
-    # Display command
+process_command() {{
+    command=$(cat {fifo_path})
+    rm -f {lock_file}
+
     echo ""
     echo "---------------------------------------------------"
     echo "Executing: $command"
     echo "---------------------------------------------------"
-    
-    # Execute the command and capture output
-    eval "$command" 2>&1 | tee %s
-    EXIT_CODE=${PIPESTATUS[0]}
-    
-    # Add exit code to output
-    echo "" >> %s
-    echo "---------------------------------------------------" >> %s
-    echo "Command completed with exit code: $EXIT_CODE" >> %s
-    
-    # Create lock file to indicate completion
-    touch %s
-    
+
+    bash -c "$command" 2>&1 | tee {output_file}
+    EXIT_CODE=${{PIPESTATUS[0]}}
+
+    echo "" >> {output_file}
+    echo "---------------------------------------------------" >> {output_file}
+    echo "Command completed with exit code: $EXIT_CODE" >> {output_file}
+
+    touch {lock_file}
+
     echo "---------------------------------------------------"
     echo "Command completed. Waiting for next command..."
     echo "---------------------------------------------------"
-}
+}}
 
-# Main loop - keep reading commands
 while true; do
-    if [ -e %s ]; then
+    if [ -e {fifo_path} ]; then
         process_command
     else
         sleep 0.5
     fi
 done
-''' % (self.pid_file, self.fifo_path, self.lock_file,
-       self.output_file, self.output_file, self.output_file,
-       self.output_file, self.lock_file, self.fifo_path))
+'''.format(
+                pid_file=self.pid_file,
+                fifo_path=self.fifo_path,
+                lock_file=self.lock_file,
+                output_file=self.output_file,
+            )
+            # Write with owner-only exec permissions — no group/world read.
+            fd = os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+            with os.fdopen(fd, "w") as f:
+                f.write(script_content)
 
-            # Make script executable
-            os.chmod(script_path, 0o755)
-
-            # Launch terminal more reliably - determine based on desktop environment
-            desktop_env = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
-            term_cmd = ""
-
-            if "gnome" in desktop_env or "unity" in desktop_env:
-                term_cmd = f"gnome-terminal -- bash {script_path}"
-            elif "kde" in desktop_env or "plasma" in desktop_env:
-                term_cmd = f"konsole -e bash {script_path}"
-            elif "xfce" in desktop_env:
-                term_cmd = f"xfce4-terminal -e 'bash {script_path}'"
-            else:
-                # Use detected terminal with explicit bash
-                term_cmd = f"{self.terminal_type} bash {script_path}"
-
-            # Log the command we're about to run
-            logging.info(f"Launching persistent terminal with: {term_cmd}")
-            #print_formatted_text(HTML(f"<ansiblue>Launching terminal: {term_cmd}</ansiblue>"))
-
-            # Launch the terminal with nohup to ensure it stays running
-            subprocess.Popen(term_cmd, shell=True,
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL,
-                           start_new_session=True)
+            logging.info(f"Launching persistent terminal (platform: {platform.system()}, type: {self.terminal_type})")
+            self._launch_terminal(script_path)
 
             # Wait for terminal to initialize
             wait_count = 0
@@ -214,6 +211,68 @@ done
             logging.error(f"Error initializing persistent terminal: {e}")
             print_formatted_text(HTML(f"<ansired>Error initializing persistent terminal: {e}</ansired>"))
             self._initialize_fallback()
+
+    def _launch_terminal(self, script_path: str) -> None:
+        """Start a persistent terminal window running script_path.
+
+        Handles macOS (Terminal.app / iTerm2 via osascript) and Linux
+        (XDG desktop environment detection + generic fallback) separately.
+        """
+        if _IS_MACOS:
+            self._launch_terminal_macos(script_path)
+        else:
+            self._launch_terminal_linux(script_path)
+
+    def _launch_terminal_macos(self, script_path: str) -> None:
+        """Open a new terminal window on macOS using AppleScript (osascript)."""
+        if self.terminal_type == "iterm2":
+            # iTerm2: create a new window running our script.
+            applescript = (
+                'tell application "iTerm2"\n'
+                '  create window with default profile\n'
+                '  tell current session of current window\n'
+                f'    write text "bash {script_path}"\n'
+                '  end tell\n'
+                'end tell'
+            )
+        else:
+            # Terminal.app: open a new window and run the script in it.
+            applescript = (
+                'tell application "Terminal"\n'
+                f'  do script "bash {script_path}"\n'
+                '  activate\n'
+                'end tell'
+            )
+
+        logging.info("Launching macOS terminal via osascript (%s)", self.terminal_type)
+        subprocess.Popen(
+            ["osascript", "-e", applescript],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    def _launch_terminal_linux(self, script_path: str) -> None:
+        """Open a persistent terminal window on Linux."""
+        desktop_env = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+
+        if "gnome" in desktop_env or "unity" in desktop_env:
+            term_cmd = f"gnome-terminal -- bash {script_path}"
+        elif "kde" in desktop_env or "plasma" in desktop_env:
+            term_cmd = f"konsole -e bash {script_path}"
+        elif "xfce" in desktop_env:
+            term_cmd = f"xfce4-terminal -e 'bash {script_path}'"
+        else:
+            term_cmd = f"{self.terminal_type} bash {script_path}"
+
+        logging.info("Launching Linux terminal: %s", term_cmd)
+        subprocess.Popen(
+            term_cmd,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
 
     def _initialize_fallback(self):
         """Initialize a fallback terminal method."""
@@ -296,9 +355,12 @@ done
                 # Verify it's running after initialization
                 if not self._is_terminal_running():
                     logging.error("Terminal failed to initialize properly. Using direct execution.")
-                    # Execute directly as fallback
+                    # Execute directly as fallback — use ["bash", "-c"] instead of
+                # shell=True to avoid an extra shell-interpolation layer.
                     try:
-                        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                        result = subprocess.run(
+                            ["bash", "-c", command], capture_output=True, text=True
+                        )
                         with open(self.output_file, 'w') as f:
                             f.write(result.stdout + "\n" + result.stderr)
                         # Create lock file to signal completion
@@ -392,20 +454,18 @@ def execute_command(command):
         str: Command output or error message
     """
     try:
-        # Log the command
         logging.debug(f"Executing simple command: {command}")
 
-        # Determine if command needs shell
-        needs_shell = any(char in command for char in ['|', '>', '<', '&', ';', '*', '`'])
+        # Always run via ["bash", "-c", command] instead of shell=True.
+        # shell=True spawns a second shell layer which can cause unexpected
+        # re-evaluation of shell metacharacters in AI-generated command strings.
+        result = subprocess.run(
+            ["bash", "-c", command],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
 
-        # Execute the command
-        if needs_shell:
-            result = subprocess.run(command, capture_output=True, text=True, shell=True, timeout=30)
-        else:
-            args = shlex.split(command)
-            result = subprocess.run(args, capture_output=True, text=True, timeout=30)
-
-        # Return the result
         if result.returncode == 0:
             return result.stdout
         else:
@@ -414,7 +474,7 @@ def execute_command(command):
     except subprocess.TimeoutExpired:
         return "Error: Command execution timed out after 30 seconds"
     except FileNotFoundError:
-        return f"Error: Command not found: {command.split()[0]}"
+        return "Error: bash not found — cannot execute command"
     except PermissionError:
         return f"Error: Permission denied when executing: {command}"
     except Exception as e:

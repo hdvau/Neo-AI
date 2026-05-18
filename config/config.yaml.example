@@ -1,26 +1,39 @@
-# Operation Mode
-mode: "digital_ocean"                                     # Options: 'lm_studio' or 'digital_ocean'
+# Neo-AI Configuration Example
+# Copy this file to config/config.yaml and fill in your values.
+# NEVER commit config.yaml — it contains credentials.
 
-# Lm studio Configuration
-  api_url: "http:127.0.0.1:1234/v1"     # Default localhost url, diplayed unter the LM Studio Server Tab
-  api_key: ""                                    # Default API key for LM Studio
-  model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"   # Found in LM Studio -> Server -> your loaded Model. Keep in mind to change this, if you switch the modell. And use the pre prompt as System Promt for the model
+# Operation mode — choose one: "ollama" | "lm_studio" | "digital_ocean"
+mode: "ollama"
 
-# DigitalOcean Configuration
-digital_ocean:
-  agent_id: "your-agent-id"                          # DigitalOcean agent ID
-  agent_key: "your-agent-key"                        # Authentication key
-  agent_endpoint: "https://your-endpoint.app/api/v1"  # API endpoint
-  model: "model-name"                                # Model to use
+# ── Ollama (local, no API key required) ──────────────────────────────────────
+# Install: https://ollama.com  |  Pull a model: ollama pull llama3.2
+# List available models: ollama list
+ollama_config:
+  api_url: "http://localhost:11434/v1"   # Ollama's OpenAI-compatible endpoint
+  model: "llama3.2"                       # Change to any model you have pulled
 
-# Security Settings
-security:
-  auto_approve_commands: false                        # Automatic command approval
-  require_approval: true                              # Manual approval requirement
+# ── LM Studio (local, no API key required) ───────────────────────────────────
+lm_studio_config:
+  api_url: "http://127.0.0.1:1234/v1"
+  api_key: ""
+  model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+  input_prefix: "### Instruction:"       # Optional — leave empty for most models
+  input_suffix: "### Response:"
 
-# LM Studio Configuration (Do not modify unless necessary)
-lm_studio:
-  antiprompt: ""
-  prompts:
-    prefix: "### Instruction:"
-    suffix: "### Response:"
+# ── DigitalOcean GenAI (cloud) ────────────────────────────────────────────────
+digital_ocean_config:
+  agent_id: "your-agent-id"
+  agent_key: "your-agent-key"
+  agent_endpoint: "https://your-endpoint.app/api/v1"
+  model: "model-name"
+
+# ── Command Approval ──────────────────────────────────────────────────────────
+command_approval:
+  require_approval: true        # Prompt before executing any command
+  auto_approve_all: false       # DANGER: skips approval for every command
+
+# ── Streaming ────────────────────────────────────────────────────────────────
+stream: true
+
+# ── History ──────────────────────────────────────────────────────────────────
+max_history_messages: 40
