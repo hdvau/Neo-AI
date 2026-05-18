@@ -397,6 +397,98 @@ class NeoAI:
             print(f"Error while querying model: {e}")
             return ""
 
+    # ── Runtime mode switching ────────────────────────────────────────────────
+
+    VALID_MODES = ('ollama', 'lm_studio', 'openai', 'claude')
+
+    def switch_mode(self, mode: str, model: str = "") -> str:
+        """Switch backend/model at runtime without restarting.
+
+        Conversation history is preserved so the user can continue the
+        session after switching. Returns a human-readable status string.
+
+        Args:
+            mode:  One of 'ollama', 'lm_studio', 'openai', 'claude'.
+            model: Optional model override (e.g. 'gpt-4o', 'mistral:latest').
+                   When omitted the value from config.yaml is used.
+        """
+        if mode not in self.VALID_MODES:
+            return (
+                f"Unknown mode '{mode}'. "
+                f"Valid modes: {', '.join(self.VALID_MODES)}"
+            )
+
+        try:
+            if mode == 'claude':
+                if not _ANTHROPIC_AVAILABLE:
+                    return (
+                        "The 'anthropic' package is not installed. "
+                        "Run: pip install anthropic"
+                    )
+                claude_cfg = self.config.get('claude_config', {})
+                api_key = (
+                    claude_cfg.get('api_key')
+                    or os.environ.get('ANTHROPIC_API_KEY', '')
+                )
+                if not api_key:
+                    return (
+                        "No Anthropic API key found. "
+                        "Set claude_config.api_key in config.yaml "
+                        "or export ANTHROPIC_API_KEY."
+                    )
+                self._anthropic_client = _anthropic_sdk.Anthropic(api_key=api_key)
+                self._claude_max_tokens = claude_cfg.get('max_tokens', 4096)
+                self.model = model or claude_cfg.get('model', 'claude-opus-4-5')
+
+            elif mode == 'openai':
+                openai_cfg = self.config.get('openai_config', {})
+                api_key = (
+                    openai_cfg.get('api_key')
+                    or os.environ.get('OPENAI_API_KEY', '')
+                )
+                if not api_key:
+                    return (
+                        "No OpenAI API key found. "
+                        "Set openai_config.api_key in config.yaml "
+                        "or export OPENAI_API_KEY."
+                    )
+                openai.api_base = openai_cfg.get('api_url', 'https://api.openai.com/v1')
+                openai.api_key = api_key
+                self.model = model or openai_cfg.get('model', 'gpt-4o')
+
+            elif mode == 'ollama':
+                ollama_cfg = self.config.get('ollama_config', {})
+                openai.api_base = ollama_cfg.get('api_url', 'http://localhost:11434/v1')
+                openai.api_key = 'ollama'
+                self.model = model or ollama_cfg.get('model', '')
+                if not self.model:
+                    return (
+                        "Specify a model name, e.g.: "
+                        "neo-use ollama mistral:latest"
+                    )
+
+            else:  # lm_studio
+                lm_cfg = self.config.get('lm_studio_config', {})
+                openai.api_base = (
+                    lm_cfg.get('api_url') or self.config.get('api_url', '')
+                )
+                openai.api_key = (
+                    lm_cfg.get('api_key') or self.config.get('api_key', '')
+                )
+                self.model = (
+                    model
+                    or lm_cfg.get('model')
+                    or self.config.get('model', '')
+                )
+
+            self.mode = mode
+            logging.info("Switched to mode=%s model=%s", self.mode, self.model)
+            return f"Switched to \033[1m{mode}\033[0m — model: \033[1m{self.model}\033[0m"
+
+        except Exception as e:
+            logging.error("switch_mode failed: %s", e)
+            return f"Failed to switch mode: {e}"
+
     # ── Main dispatch ─────────────────────────────────────────────────────────
 
     def query(self, prompt, clear_thinking=False):

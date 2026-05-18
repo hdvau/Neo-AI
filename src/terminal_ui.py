@@ -6,6 +6,7 @@ This provides a more interactive and visually appealing experience.
 import os
 import sys
 from prompt_toolkit import PromptSession
+from src.ai_core import NeoAI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.formatted_text import HTML
@@ -44,7 +45,7 @@ class ImprovedTerminalUI:
         """Initialize the terminal UI with Neo AI instance and config."""
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['help', 'history', 'clear', 'exit']
+        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use']
 
         # Create history file in user's home directory
         history_file = os.path.expanduser('~/.neo_history.txt')
@@ -64,11 +65,21 @@ class ImprovedTerminalUI:
             with open(history_file, 'w') as f:
                 pass
 
-        # Create a custom completer that only works at the beginning of the line
+        # Create a custom completer that expands commands and mode names
         class CommandStartCompleter(WordCompleter):
             def get_completions(self, document, complete_event):
-                # Only complete if we're at the start of the line or within the first word
                 text_before_cursor = document.text_before_cursor
+
+                # After "neo-use " complete with valid mode names
+                if text_before_cursor.lstrip().startswith('neo-use '):
+                    partial = text_before_cursor.split()[-1] if not text_before_cursor.endswith(' ') else ''
+                    from prompt_toolkit.completion import Completion
+                    for mode in NeoAI.VALID_MODES:
+                        if mode.startswith(partial):
+                            yield Completion(mode, start_position=-len(partial))
+                    return
+
+                # Only complete commands at the start of the line
                 if not text_before_cursor.strip() or ' ' not in text_before_cursor:
                     yield from super().get_completions(document, complete_event)
 
@@ -94,15 +105,22 @@ class ImprovedTerminalUI:
 
     def print_help(self):
         """Display help menu."""
-        help_text = """
+        modes = ', '.join(NeoAI.VALID_MODES)
+        help_text = f"""
 <info>Available commands:</info>
-  • <highlight>help</highlight>    - Show this help menu
-  • <highlight>history</highlight> - Show conversation history
-  • <highlight>clear</highlight>   - Clear the screen
-  • <highlight>exit</highlight>    - Exit Neo AI
+  • <highlight>help</highlight>                       - Show this help menu
+  • <highlight>history</highlight>                    - Show conversation history
+  • <highlight>clear</highlight>                      - Clear the screen
+  • <highlight>exit</highlight>                       - Exit Neo AI
+  • <highlight>neo-use &lt;mode&gt; [model]</highlight>  - Switch AI backend at runtime
+      Modes: {modes}
+      Examples:
+        neo-use claude
+        neo-use openai gpt-4o
+        neo-use ollama mistral:latest
 
 <info>Tips:</info>
-  • Use <highlight>Tab</highlight> for command completion
+  • Use <highlight>Tab</highlight> for command and mode completion
   • Use <highlight>Up/Down</highlight> arrows to navigate command history
   • Use <highlight>Ctrl+L</highlight> to clear the screen
   • Use <highlight>Ctrl+D</highlight> to exit
@@ -163,9 +181,13 @@ class ImprovedTerminalUI:
 
         while True:
             try:
-                # Display custom prompt with username
+                # Display custom prompt with username and active model
                 username = os.getlogin()
-                prompt_text = HTML(f'<prompt>{username}@neo</prompt> > ')
+                model_tag = f"{self.neo_ai.mode}:{self.neo_ai.model}"
+                prompt_text = HTML(
+                    f'<prompt>{username}@neo</prompt>'
+                    f'<ansigray> [{model_tag}]</ansigray> > '
+                )
 
                 # Get user input with the session
                 user_input = self.session.prompt(prompt_text, style=NEO_STYLE)
@@ -188,6 +210,23 @@ class ImprovedTerminalUI:
                 elif user_input.lower() == 'clear':
                     clear()
                     self.print_banner()
+
+                elif user_input.lower().startswith('neo-use'):
+                    parts = user_input.split()
+                    if len(parts) < 2:
+                        modes = ', '.join(NeoAI.VALID_MODES)
+                        print_formatted_text(
+                            HTML(f'<info>Usage: neo-use &lt;mode&gt; [model]  —  Modes: {modes}</info>'),
+                            style=NEO_STYLE,
+                        )
+                    else:
+                        mode = parts[1].lower()
+                        model = parts[2] if len(parts) >= 3 else ""
+                        msg = self.neo_ai.switch_mode(mode, model)
+                        print_formatted_text(
+                            HTML(f'<ansiblue>{msg}</ansiblue>'),
+                            style=NEO_STYLE,
+                        )
 
                 else:
                     print_formatted_text(HTML('<output>Thinking...</output>'), style=NEO_STYLE, end='\r')
