@@ -170,6 +170,7 @@ class NeoAI:
         return full_context
 
     def _query_lm_studio(self, prompt, clear_thinking=False):
+        """Query the model, stream output to the terminal, then process MCP tags."""
         # Ollama and plain OpenAI-compatible backends don't use LM Studio's
         # instruction wrapping — only apply it when explicitly configured.
         prefix = self.lm_studio_config.get('input_prefix', '')
@@ -209,6 +210,44 @@ class NeoAI:
         except Exception as e:
             print(f"Error while querying LM Studio: {e}")
             return "An error occurred while querying LM Studio."
+
+    def _query_raw(self, prompt: str) -> str:
+        """Query the model and return the response text WITHOUT processing MCP tags.
+
+        Used for follow-up messages (sending command output back for summarisation)
+        so that the model's summary cannot trigger another round of command
+        execution and cause an infinite loop.
+        """
+        messages = self.history.copy()
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            completion = openai.ChatCompletion.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.7,
+                stream=self.is_streaming_mode,
+            )
+
+            full_response = ""
+            is_first_chunk = True
+
+            for chunk in completion:
+                if 'choices' in chunk and len(chunk['choices']) > 0:
+                    content = chunk['choices'][0]['delta'].get('content', '')
+                    if content:
+                        if is_first_chunk:
+                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                            is_first_chunk = False
+                        print(content, end='', flush=True)
+                        full_response += content
+
+            print()
+            return full_response.strip()
+
+        except Exception as e:
+            print(f"Error while querying model: {e}")
+            return ""
 
     def _query_digitalocean(self, prompt, clear_thinking=False):
         self._ensure_valid_token()
@@ -307,6 +346,57 @@ class NeoAI:
 
         return "Sorry, I couldn't get a response. Please try again."
 
+    def _query_digitalocean_raw(self, prompt: str) -> str:
+        """DigitalOcean follow-up query that skips MCP tag processing.
+
+        Mirrors _query_raw() for the DO backend — returns plain text only,
+        preventing the same infinite-loop risk as in the Ollama/LM Studio path.
+        """
+        self._ensure_valid_token()
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": self.history + [{"role": "user", "content": prompt}],
+            "stream": True,
+        }
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.agent_endpoint}/chat/completions",
+                json=payload,
+                headers=headers,
+                timeout=30.0,
+            ) as response:
+                response.raise_for_status()
+                is_first_chunk = True
+                assistant_response = ""
+                for line in response.iter_lines():
+                    line = line.strip()
+                    if line.startswith("data:"):
+                        line = line[len("data:"):].strip()
+                    if line:
+                        try:
+                            chunk = json.loads(line)
+                            if "choices" in chunk and chunk["choices"]:
+                                content = chunk["choices"][0].get("delta", {}).get("content", "")
+                                if content:
+                                    if is_first_chunk:
+                                        print("\033[1;34mNeo:\033[0m ", end="", flush=True)
+                                        is_first_chunk = False
+                                    print(content, end="", flush=True)
+                                    assistant_response += content
+                        except json.JSONDecodeError:
+                            if line == "[DONE]":
+                                break
+                print()
+                return assistant_response.strip()
+        except Exception as e:
+            logging.error("DO raw query failed: %s", e)
+            return ""
+
     def query(self, prompt, clear_thinking=False):
         try:
             if not self.context_initialized:
@@ -368,16 +458,23 @@ class NeoAI:
                     follow_up_prompt = f"The {protocol} command '{command}' was executed. Here is the result:\n{output}"
                     follow_up_messages.append(follow_up_prompt)
 
-            # If we have follow-up messages, send them to the AI
+            # If we have follow-up messages, send them to the AI for summarisation.
+            # Use _query_raw() — NOT _query_lm_studio() — so the model's summary
+            # response is never fed back into _process_response(). Without this,
+            # any MCP tag in the summary would trigger another command execution,
+            # causing an infinite approval/execution loop.
             if follow_up_messages:
                 combined_prompt = "\n\n".join(follow_up_messages)
                 self.history.append({"role": "user", "content": combined_prompt})
 
                 if self.mode == "digital_ocean":
-                    return self._query_digitalocean(combined_prompt)
+                    summary = self._query_digitalocean_raw(combined_prompt)
                 else:
-                    # 'lm_studio' and 'ollama' both use the OpenAI-compatible path.
-                    return self._query_lm_studio(combined_prompt)
+                    summary = self._query_raw(combined_prompt)
+
+                if summary:
+                    self.history.append({"role": "assistant", "content": summary})
+                return summary
 
         except Exception as e:
             import traceback
