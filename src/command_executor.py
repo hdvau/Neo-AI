@@ -489,8 +489,6 @@ def execute_command_inline(command: str, timeout: int = 120) -> str:
     Returns:
         Combined stdout + stderr output as a string.
     """
-    print("\033[90m" + "─" * 50 + "\033[0m")   # dim separator
-
     output_lines: list[str] = []
     try:
         proc = subprocess.Popen(
@@ -525,8 +523,6 @@ def execute_command_inline(command: str, timeout: int = 120) -> str:
         msg = f"Error: {e}\n"
         print(msg, end="")
         return msg
-
-    print("\033[90m" + "─" * 50 + "\033[0m")   # dim separator
 
     if exit_code != 0:
         exit_line = f"[exit code {exit_code}]\n"
