@@ -74,6 +74,16 @@ class NeoAI:
         # plain chatbot and never generates <mcp:terminal> tags.
         self._load_system_prompt(config)
 
+        # Wire the command timeout from config into the terminal protocol handler.
+        # The handler singleton is created at import time with a default; update
+        # it now that the real config is available.
+        _cmd_timeout: int = config.get('command_timeout', 120)
+        try:
+            from src.mcp_protocol.handlers.terminal_protocol import handler as _t_handler
+            _t_handler.command_timeout = _cmd_timeout
+        except Exception:
+            pass  # Non-fatal — handler keeps its built-in default
+
     def _load_system_prompt(self, config: dict) -> None:
         """Prepend the system prompt to history as a 'system' role message.
 
