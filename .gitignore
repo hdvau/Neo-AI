@@ -1,0 +1,26 @@
+# Virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Credentials and config — NEVER commit
+config/config.yaml
+
+# Pytest / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

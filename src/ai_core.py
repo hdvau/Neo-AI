@@ -22,7 +22,9 @@ os.environ.pop('ALL_PROXY', None)
 os.environ.pop('socks_proxy', None)
 os.environ.pop('SOCKS_PROXY', None)
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+# Log level is INFO by default; set NEO_DEBUG=1 to enable DEBUG output.
+_log_level = logging.DEBUG if os.environ.get("NEO_DEBUG") else logging.INFO
+logging.basicConfig(level=_log_level, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 class NeoAI:
@@ -52,6 +54,20 @@ class NeoAI:
         self.lm_studio_config = config.get('lm_studio_config', {})
         self.history = []
         self.context_initialized = False
+        # Maximum number of messages kept in history to prevent unbounded memory
+        # growth and token-limit breaches. Keeps the last N message pairs.
+        self._max_history_messages: int = config.get('max_history_messages', 40)
+
+    def _trim_history(self) -> None:
+        """Drop oldest messages when history exceeds the configured limit.
+
+        The first message (context/system prompt) is always preserved so the AI
+        retains its initial environment context.
+        """
+        if len(self.history) > self._max_history_messages:
+            keep = self._max_history_messages - 1  # reserve slot for first msg
+            self.history = self.history[:1] + self.history[-keep:]
+            logging.debug("History trimmed to %d messages.", len(self.history))
 
     def _ensure_valid_token(self):
         """Check that the token is still valid and renew it if necessary"""
@@ -235,6 +251,7 @@ class NeoAI:
                 prompt = f"{context}\n\n{prompt}"
 
             self.history.append({"role": "user", "content": prompt})
+            self._trim_history()
 
             if self.mode == 'digital_ocean':
                 return self._query_digitalocean(prompt, clear_thinking)

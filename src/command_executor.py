@@ -35,10 +35,11 @@ class PersistentTerminalExecutor:
             filemode='a'
         )
 
-        # Create FIFO if it doesn't exist
+        # Create FIFO with owner-only permissions (0o600) so other users on
+        # the same host cannot inject commands through it.
         if not os.path.exists(self.fifo_path):
             try:
-                os.mkfifo(self.fifo_path)
+                os.mkfifo(self.fifo_path, 0o600)
             except Exception as e:
                 logging.error(f"Failed to create FIFO: {e}")
 
@@ -111,60 +112,56 @@ class PersistentTerminalExecutor:
             return
 
         try:
-            # Create the terminal script
+            # Write the terminal script with owner-only permissions (0o700).
+            # Using bash -c instead of eval to avoid double-evaluation of the
+            # command string (eval can re-expand $(...) and backtick sequences).
             script_path = os.path.join(self.temp_dir, "neo_terminal_script.sh")
-            with open(script_path, 'w') as f:
-                f.write('''#!/bin/bash
-echo $$ > %s
+            script_content = '''#!/bin/bash
+echo $$ > {pid_file}
 echo "Neo AI Terminal - DO NOT CLOSE THIS WINDOW"
 echo "This terminal will be used for all Neo AI commands."
 echo "---------------------------------------------------"
 
-# Function to handle commands
-process_command() {
-    # Read command from FIFO
-    command=$(cat %s)
-    
-    # Create lock file to indicate we're running a command
-    rm -f %s
-    
-    # Display command
+process_command() {{
+    command=$(cat {fifo_path})
+    rm -f {lock_file}
+
     echo ""
     echo "---------------------------------------------------"
     echo "Executing: $command"
     echo "---------------------------------------------------"
-    
-    # Execute the command and capture output
-    eval "$command" 2>&1 | tee %s
-    EXIT_CODE=${PIPESTATUS[0]}
-    
-    # Add exit code to output
-    echo "" >> %s
-    echo "---------------------------------------------------" >> %s
-    echo "Command completed with exit code: $EXIT_CODE" >> %s
-    
-    # Create lock file to indicate completion
-    touch %s
-    
+
+    bash -c "$command" 2>&1 | tee {output_file}
+    EXIT_CODE=${{PIPESTATUS[0]}}
+
+    echo "" >> {output_file}
+    echo "---------------------------------------------------" >> {output_file}
+    echo "Command completed with exit code: $EXIT_CODE" >> {output_file}
+
+    touch {lock_file}
+
     echo "---------------------------------------------------"
     echo "Command completed. Waiting for next command..."
     echo "---------------------------------------------------"
-}
+}}
 
-# Main loop - keep reading commands
 while true; do
-    if [ -e %s ]; then
+    if [ -e {fifo_path} ]; then
         process_command
     else
         sleep 0.5
     fi
 done
-''' % (self.pid_file, self.fifo_path, self.lock_file,
-       self.output_file, self.output_file, self.output_file,
-       self.output_file, self.lock_file, self.fifo_path))
-
-            # Make script executable
-            os.chmod(script_path, 0o755)
+'''.format(
+                pid_file=self.pid_file,
+                fifo_path=self.fifo_path,
+                lock_file=self.lock_file,
+                output_file=self.output_file,
+            )
+            # Write with owner-only exec permissions — no group/world read.
+            fd = os.open(script_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+            with os.fdopen(fd, "w") as f:
+                f.write(script_content)
 
             # Launch terminal more reliably - determine based on desktop environment
             desktop_env = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
@@ -296,9 +293,12 @@ done
                 # Verify it's running after initialization
                 if not self._is_terminal_running():
                     logging.error("Terminal failed to initialize properly. Using direct execution.")
-                    # Execute directly as fallback
+                    # Execute directly as fallback — use ["bash", "-c"] instead of
+                # shell=True to avoid an extra shell-interpolation layer.
                     try:
-                        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                        result = subprocess.run(
+                            ["bash", "-c", command], capture_output=True, text=True
+                        )
                         with open(self.output_file, 'w') as f:
                             f.write(result.stdout + "\n" + result.stderr)
                         # Create lock file to signal completion
@@ -392,20 +392,18 @@ def execute_command(command):
         str: Command output or error message
     """
     try:
-        # Log the command
         logging.debug(f"Executing simple command: {command}")
 
-        # Determine if command needs shell
-        needs_shell = any(char in command for char in ['|', '>', '<', '&', ';', '*', '`'])
+        # Always run via ["bash", "-c", command] instead of shell=True.
+        # shell=True spawns a second shell layer which can cause unexpected
+        # re-evaluation of shell metacharacters in AI-generated command strings.
+        result = subprocess.run(
+            ["bash", "-c", command],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
 
-        # Execute the command
-        if needs_shell:
-            result = subprocess.run(command, capture_output=True, text=True, shell=True, timeout=30)
-        else:
-            args = shlex.split(command)
-            result = subprocess.run(args, capture_output=True, text=True, timeout=30)
-
-        # Return the result
         if result.returncode == 0:
             return result.stdout
         else:
@@ -414,7 +412,7 @@ def execute_command(command):
     except subprocess.TimeoutExpired:
         return "Error: Command execution timed out after 30 seconds"
     except FileNotFoundError:
-        return f"Error: Command not found: {command.split()[0]}"
+        return "Error: bash not found — cannot execute command"
     except PermissionError:
         return f"Error: Permission denied when executing: {command}"
     except Exception as e:

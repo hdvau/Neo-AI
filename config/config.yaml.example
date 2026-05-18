@@ -1,26 +1,33 @@
-# Operation Mode
-mode: "digital_ocean"                                     # Options: 'lm_studio' or 'digital_ocean'
+# Neo-AI Configuration Example
+# Copy this file to config/config.yaml and fill in your values.
+# NEVER commit config.yaml — it contains credentials.
 
-# Lm studio Configuration
-  api_url: "http:127.0.0.1:1234/v1"     # Default localhost url, diplayed unter the LM Studio Server Tab
-  api_key: ""                                    # Default API key for LM Studio
-  model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"   # Found in LM Studio -> Server -> your loaded Model. Keep in mind to change this, if you switch the modell. And use the pre prompt as System Promt for the model
+# Operation mode: "lm_studio" (local) or "digital_ocean" (cloud)
+mode: "digital_ocean"
 
-# DigitalOcean Configuration
-digital_ocean:
-  agent_id: "your-agent-id"                          # DigitalOcean agent ID
-  agent_key: "your-agent-key"                        # Authentication key
-  agent_endpoint: "https://your-endpoint.app/api/v1"  # API endpoint
-  model: "model-name"                                # Model to use
+# ── LM Studio (local model) ───────────────────────────────────────────────────
+lm_studio_config:
+  api_url: "http://127.0.0.1:1234/v1"   # Default LM Studio server address
+  api_key: ""                             # LM Studio does not require an API key
+  model: "lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+  input_prefix: "### Instruction:"
+  input_suffix: "### Response:"
 
-# Security Settings
-security:
-  auto_approve_commands: false                        # Automatic command approval
-  require_approval: true                              # Manual approval requirement
+# ── DigitalOcean GenAI (cloud) ────────────────────────────────────────────────
+digital_ocean_config:
+  agent_id: "your-agent-id"
+  agent_key: "your-agent-key"
+  agent_endpoint: "https://your-endpoint.app/api/v1"
+  model: "model-name"
 
-# LM Studio Configuration (Do not modify unless necessary)
-lm_studio:
-  antiprompt: ""
-  prompts:
-    prefix: "### Instruction:"
-    suffix: "### Response:"
+# ── Command Approval ──────────────────────────────────────────────────────────
+command_approval:
+  require_approval: true        # Prompt the user before executing any command
+  auto_approve_all: false       # DANGER: skips approval for every command
+
+# ── Streaming ────────────────────────────────────────────────────────────────
+stream: true
+
+# ── History ──────────────────────────────────────────────────────────────────
+# Maximum number of messages kept in memory. Prevents unbounded growth.
+max_history_messages: 40
