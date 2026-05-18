@@ -1,174 +1,252 @@
-# Neo AI - Your Intelligent Linux Terminal Assistant
+# Neo AI — Terminal AI Assistant
 
 <div align="center">
-  <img src="assets/demo.gif" width="400" alt="Neo AI Terminal Banner">
+  <img src="assets/demo.gif" width="400" alt="Neo AI Terminal Demo">
 </div>
 
-Neo is an AI assistant designed to enhance your Linux terminal experience. It seamlessly integrates with your environment to execute commands, provide system insights, and assist with both everyday tasks and cybersecurity operations. With support for multiple AI backends including LM Studio, OpenAI, and Anthropic's Claude via DigitalOcean.
-
-## 🌟 Features
-
-- **Intelligent Command Execution**: Neo understands your intent and executes Linux commands with proper context awareness
-- **Multi-Protocol Support**: Interact with your system through specialized protocols for terminal, files, networks, and security tasks
-- **Terminal UI**: Enjoy a responsive, syntax-highlighted interface with command history and auto-completion
-- **Terminal**: Neo execute commands in a dedicated terminal window for better visibility and interaction
-- **Security-Focused**: Built-in approval system for commands to maintain security and control
-- **Cybersecurity Tools**: Support for network scanning, security analysis, and CTF challenges
-- **Multiple AI Backends**: Works with various AI models through different providers:
-  - **LM Studio**: Run models locally with LM Studio
-  - **DigitalOcean**: Connect to DigitalOcean's AI platform
-  - **OpenAI**: Access GPT models via DigitalOcean integration
-  - **Anthropic/Claude**: Claude models via DigitalOcean integration
-
-## 🎥 Demo
-
-<p align="center">
-  <a href="https://youtu.be/RAWu0XJIHF8">
-    <img src="https://img.youtube.com/vi/RAWu0XJIHF8/maxresdefault.jpg" width="700" alt="Neo AI Demo">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://youtu.be/RAWu0XJIHF8"><b>See Neo in action by watching demo</b></a>
-</p>
-
-
-### Prerequisites
-
-- Linux-based operating system
-- Python 3.6 or higher
-- Pip package manager
-- One of the following terminal emulators: gnome-terminal, konsole, xfce4-terminal, mate-terminal, terminator, tilix, kitty, or alacritty
-- One of the following AI backends:
-  - **LM Studio**: For local model execution
-  - **DigitalOcean API account**: For cloud-based execution with OpenAI or Anthropic models
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/vasco0x4/neo-ai.git
-cd neo-ai
-```
-
-2. Run the installation script:
-```bash
-./install.sh
-echo "alias neo='source $(pwd)/venv/bin/activate && python3 $(pwd)/main.py'" >> ~/.bashrc
-```
-
-3. Configure Neo:
-```bash
-cp config/config.yaml.example config/config.yaml
-# Edit the configuration file with your preferred settings
-nano config/config.yaml
-```
-
-4. Start Neo:
-```bash
-source ~/.bashrc
-neo
-```
-> Note maybe you need to restart you terminal
-
-
-## 🔧 Configuration
-
-Neo can be configured using the `config/config.yaml` file to connect with your preferred AI provider:
-
-```yaml
-# Operation Mode
-mode: "lm_studio"  # Options: 'lm_studio' local or 'digital_ocean' cloud
-
-# LM Studio Configuration (Local)
-api_url: "http://127.0.0.1:1234/v1"
-api_key: ""                    
-model: "your-model-name"
-
-# DigitalOcean Configuration (Cloud)
-digital_ocean:
-  agent_id: "your-agent-id"
-  agent_key: "your-agent-key"
-  agent_endpoint: "https://your-endpoint.app/api/v1"
-  model: "model-name"  # Can be a DigitalOcean, OpenAI, or Anthropic model
-
-# Security Settings
-security:
-  auto_approve_commands: false
-  require_approval: true
-```
-
-## 💻 Using Neo
-
-### Machine Communication Protocol (MCP)
-
-Neo communicates with your system using a protocol system. Here are the key protocols available:
-
-| Protocol | Description | Example Usage |
-|----------|-------------|---------------|
-| `terminal` | Execute shell commands | `ls -la`, `ps aux`, etc. |
-| `files` | Manage file operations | Read, write, or list files |
-| `analyze` | Comprehensive system analysis | CPU, memory, disk usage |
-| `network` | Network operations | Interface info, connections, scanning |
-| `security` | Security assessments | User info, open ports, vulnerabilities |
-
-### Example Interactions
-
-```
-You: List all running processes
-
-Neo: I'll use the `ps` command to list all running processes.
-<mcp:terminal>ps aux</mcp:terminal>
-
-neo > ps aux
-  ↳ Execute this command? [Enter/n]: _
-
-Here are the top processes by CPU usage:
-1. firefox (23.4%)
-2. chromium (15.2%)
-3. ...
-```
-
-```
-You: Can you scan my local network?
-
-Neo: I'll scan your local network. This may take a moment:
-<mcp:network>scan:192.168.1.0/24</mcp:network>
-
-neo > nmap -F 192.168.1.0/24
-  ↳ Execute this command? [Enter/n]: _
-
-Found 12 active devices:
-```
-
-## 🔐 Security
-
-Neo is designed with security in mind:
-
-- **Command Approval**: All commands require **explicit approval**
-- **Minimal Privileges**: Neo operates with your user permissions by default
-- **Secure Configuration**: API keys are stored locally in your configuration
-
-### Custom Context
-
-Neo automatically gathers system information at startup, but you can add additional context:
-
-```bash
-# Add persistent memory entry
-echo "Custom Info: Value" >> /tmp/persistent_memory.txt
-```
-
-### Executing Interactive Commands
-
-Neo can handle interactive commands like vim, nano, or top. When using these, a dedicated interactive session will be created.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📜 License
-
-This project is licensed under the BSD 3-Clause License - see the [LICENSE](LICENSE) file for details.
+Neo is an AI-powered terminal assistant for macOS and Linux. It understands natural language, executes shell commands with real-time output, and adapts to your system automatically. It supports multiple AI backends — local or cloud — and can switch between them without restarting.
 
 ---
 
+## Features
+
+- **Natural language → shell commands** with full real-time streaming output
+- **SSH and headless compatible** — runs entirely in the current terminal, no second window needed
+- **OS-aware context** — detects macOS vs Linux at startup and always uses the correct commands (`ifconfig` not `ip addr`, `brew` not `apt`, etc.)
+- **Command approval** — every command requires explicit confirmation before execution
+- **Multiple AI backends** — Ollama, LM Studio, OpenAI API, Anthropic Claude API
+- **Hot-swap backends** — switch model or provider mid-session with `neo-use`
+- **Clean output by default** — MCP protocol tags are hidden; toggle verbose mode with `neo-verbose`
+- **Conversation history** with configurable length and automatic trimming
+- **Persistent memory** loaded as context at startup
+- **Path-safe file operations** — directory traversal protection on all file reads/writes
+
+---
+
+## Supported AI Backends
+
+| Mode | Provider | API key required |
+|---|---|---|
+| `ollama` | Local [Ollama](https://ollama.com) server | No |
+| `lm_studio` | Local [LM Studio](https://lmstudio.ai) | No |
+| `openai` | OpenAI API | Yes — `OPENAI_API_KEY` |
+| `claude` | Anthropic API | Yes — `ANTHROPIC_API_KEY` |
+
+---
+
+## Installation
+
+**Requirements:** Python 3.8+, pip, one of the backends above.
+
+```bash
+git clone https://github.com/Vasco0x4/Neo-AI.git
+cd Neo-AI
+./install.sh
+```
+
+Add the alias to your shell profile:
+
+```bash
+echo "alias neo='source $(pwd)/venv/bin/activate && python3 $(pwd)/main.py'" >> ~/.zshrc
+# or ~/.bashrc for bash
+source ~/.zshrc
+```
+
+---
+
+## Configuration
+
+Copy the example and fill in your values:
+
+```bash
+cp config/config.yaml.example config/config.yaml
+nano config/config.yaml
+```
+
+### Ollama (local, no key needed)
+
+```yaml
+mode: "ollama"
+ollama_config:
+  api_url: "http://localhost:11434/v1"   # supports remote hosts
+  model: "mistral:latest"
+```
+
+### LM Studio (local, no key needed)
+
+```yaml
+mode: "lm_studio"
+lm_studio_config:
+  api_url: "http://127.0.0.1:1234/v1"
+  model: "your-model-name"
+```
+
+### OpenAI
+
+```yaml
+mode: "openai"
+openai_config:
+  api_key: "sk-..."          # or export OPENAI_API_KEY
+  model: "gpt-4o"
+  temperature: 1             # required for o1/o3/gpt-5.x reasoning models
+```
+
+### Anthropic Claude
+
+```yaml
+mode: "claude"
+claude_config:
+  api_key: "sk-ant-..."      # or export ANTHROPIC_API_KEY
+  model: "claude-opus-4-5"
+  max_tokens: 4096
+```
+
+### Common settings
+
+```yaml
+command_approval:
+  require_approval: true     # prompt before every command
+  auto_approve_all: false    # DANGER: skips all prompts
+
+stream: true
+max_history_messages: 40
+command_timeout: 120         # seconds per command
+```
+
+---
+
+## Usage
+
+Start Neo:
+
+```bash
+neo
+# or with the classic interface:
+neo --classic
+```
+
+The prompt shows your active backend and model:
+
+```
+dha@neo [ollama:mistral:latest] >
+```
+
+### Built-in commands
+
+| Command | Description |
+|---|---|
+| `help` | Show available commands |
+| `history` | Display conversation history |
+| `clear` | Clear the screen |
+| `exit` | Quit Neo |
+| `neo-use <mode> [model]` | Switch AI backend at runtime |
+| `neo-verbose [on\|off]` | Toggle verbose output |
+
+### Switching backends mid-session
+
+Switch without losing your conversation history:
+
+```
+neo-use claude
+neo-use openai gpt-4o
+neo-use ollama mistral:latest
+neo-use lm_studio
+```
+
+Tab completion works after `neo-use ` — press Tab to see available modes.
+
+### Verbose mode
+
+By default, MCP protocol tags are hidden and only the clean response is shown. Toggle for debugging:
+
+```
+neo-verbose          # toggle
+neo-verbose on       # show raw model output including MCP tags
+neo-verbose off      # back to clean output (default)
+```
+
+---
+
+## MCP Protocol
+
+Neo uses an internal Machine Communication Protocol to interact with the system. The AI generates tagged instructions; Neo parses and executes them after your approval.
+
+| Protocol | Purpose | Examples |
+|---|---|---|
+| `terminal` | Run shell commands | Any shell command |
+| `files` | Read / write / list files | `read:/etc/hosts`, `write:/tmp/note.txt content` |
+| `analyze` | Full system overview | CPU, memory, disk, network, services |
+| `network` | Network operations | `connections`, `interfaces`, `ping:host`, `scan:192.168.1.0/24` |
+| `security` | Security checks | `users`, `ports`, `listening` |
+
+---
+
+## Example Session
+
+```
+dha@neo [claude:claude-opus-4-5] > find the document "report.pdf" and copy it to Downloads
+
+Neo:  Searching your home folder for report.pdf.
+
+  ↳ Execute this command? [Enter/n]: ✓
+──────────────────────────────────────────────────
+/Users/dha/Documents/report.pdf
+──────────────────────────────────────────────────
+
+Neo:  Found it at /Users/dha/Documents/report.pdf. Copying it to Downloads now.
+
+  ↳ Execute this command? [Enter/n]: ✓
+──────────────────────────────────────────────────
+──────────────────────────────────────────────────
+
+Neo:  Done — report.pdf is now in your Downloads folder.
+```
+
+---
+
+## Security
+
+- **Explicit approval** required before any command runs
+- **No auto-approve by default** — set `auto_approve_all: true` only if you understand the risk
+- **Path traversal protection** on all file protocol operations
+- **API keys** stay in your local `config/config.yaml` (gitignored) or environment variables
+- `config/config.yaml` is excluded from git — never committed
+
+---
+
+## Project Structure
+
+```
+Neo-AI/
+├── main.py                          # Entry point, config loading, validation
+├── config/
+│   ├── config.yaml.example          # Template — copy to config.yaml
+│   └── PrePromt.md                  # System prompt loaded at startup
+├── src/
+│   ├── ai_core.py                   # NeoAI class, backend dispatch, history
+│   ├── approval_handler.py          # Command approval prompts
+│   ├── command_executor.py          # Inline command execution (streaming)
+│   ├── terminal_interface.py        # Classic readline UI
+│   ├── terminal_ui.py               # Improved prompt_toolkit UI
+│   ├── utils.py                     # Persistent memory, helpers
+│   └── mcp_protocol/
+│       ├── core.py                  # MCP tag parser and dispatcher
+│       ├── registry.py              # Handler registry
+│       └── handlers/
+│           ├── terminal_protocol.py
+│           ├── files_protocol.py
+│           ├── analyze_protocol.py
+│           ├── network_protocol.py
+│           └── security_protocol.py
+└── tests/                           # pytest test suite
+```
+
+---
+
+## Contributing
+
+Pull requests are welcome. The project is actively developed on the `security/fix-critical-findings` branch of [hdvau/Neo-AI](https://github.com/hdvau/Neo-AI).
+
+## License
+
+BSD 3-Clause — see [LICENSE](LICENSE).
