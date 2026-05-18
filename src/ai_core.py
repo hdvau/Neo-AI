@@ -517,10 +517,15 @@ class NeoAI:
             # Check if any protocols were executed
             follow_up_messages = []
 
-            for protocol, result in mcp_results.items():
-                # Skip error key or non-dict results
-                if protocol == "error" or not isinstance(result, dict):
+            for key, result in mcp_results.items():
+                # Skip the top-level error key and any non-dict values.
+                # Keys are now "terminal", "terminal_1", "terminal_2", … to
+                # support multiple commands of the same protocol in one response.
+                if key == "error" or not isinstance(result, dict):
                     continue
+
+                # Recover the bare protocol name (strip the "_N" suffix if present)
+                protocol = key.split("_")[0]
 
                 # Check if the protocol was executed
                 if result.get("executed", False):

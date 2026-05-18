@@ -72,6 +72,11 @@ class MCPProtocol:
             Dictionary with execution results for each protocol
         """
         results = {}
+        # Track how many times each protocol name has been seen so that
+        # multiple <mcp:terminal> tags in one response get unique keys
+        # (terminal, terminal_1, terminal_2, …) instead of overwriting
+        # each other.
+        protocol_counts: Dict[str, int] = {}
 
         try:
             # Extract all MCP tags
@@ -80,18 +85,23 @@ class MCPProtocol:
             for protocol, content in mcp_tags:
                 logger.debug(f"Processing {protocol} protocol with content: {content[:50]}...")
 
+                # Build a unique key for this invocation
+                count = protocol_counts.get(protocol, 0)
+                protocol_counts[protocol] = count + 1
+                key = protocol if count == 0 else f"{protocol}_{count}"
+
                 if self.registry.has_handler(protocol):
                     # Get the handler for this protocol
                     handler = self.registry.get_handler(protocol)
 
                     # Execute the handler with the content
                     result = handler.handle(content, require_approval, auto_approve)
-                    results[protocol] = result
+                    results[key] = result
 
-                    logger.debug(f"Protocol {protocol} execution completed")
+                    logger.debug(f"Protocol {protocol} (key={key}) execution completed")
                 else:
                     logger.warning(f"Unknown protocol '{protocol}'. Ignoring command: {content}")
-                    results[protocol] = {"error": f"Unknown protocol '{protocol}'"}
+                    results[key] = {"error": f"Unknown protocol '{protocol}'"}
 
         except Exception as e:
             logger.error(f"Error processing MCP tags: {str(e)}")
