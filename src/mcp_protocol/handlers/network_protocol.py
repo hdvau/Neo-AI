@@ -130,7 +130,19 @@ class NetworkProtocolHandler(ProtocolHandler):
             else:
                 valid_commands = ", ".join(sorted(self.network_commands.keys()))
                 special_commands = "ping:host, trace:host, scan:target, lookup:host, whois:domain"
-                result["output"] = f"Unknown network command. Valid options: {valid_commands}, {special_commands}"
+                # Give a more actionable error when the model accidentally passed a
+                # shell command (e.g. "brew install foo") to the network protocol.
+                shell_hint = ""
+                if any(c in command for c in (" ", "/", "|", "&", ";")):
+                    shell_hint = (
+                        f" NOTE: '{command}' looks like a shell command — "
+                        "use <mcp:terminal> instead of <mcp:network> for shell commands."
+                    )
+                result["output"] = (
+                    f"Unknown network command: '{command}'.{shell_hint} "
+                    f"Valid keywords: {valid_commands}, {special_commands}"
+                )
+                result["executed"] = False
                 logger.warning(f"Unknown network command: {command}")
 
         except Exception as e:
