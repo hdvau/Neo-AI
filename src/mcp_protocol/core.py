@@ -35,25 +35,43 @@ class MCPProtocol:
         """
         Parse all MCP protocol tags in the provided text.
 
+        Identical (protocol, command) pairs are deduplicated: reasoning
+        models (o1, o3, gpt-5.x …) sometimes emit the same tag two or
+        three times in one response. Running the same command multiple
+        times is never useful and would show multiple approval dialogs
+        for the exact same operation.
+
         Args:
             text: The text to parse for MCP tags
 
         Returns:
-            List of tuples containing (protocol_name, command_content)
+            List of unique (protocol_name, command_content) tuples in
+            the order they first appear.
         """
-        mcp_tags = []
+        mcp_tags: List[Tuple[str, str]] = []
+        seen: set = set()
 
         # Extract MCP tags
         mcp_matches = self.mcp_pattern.findall(text)
         for protocol, content in mcp_matches:
-            mcp_tags.append((protocol.lower(), content.strip()))
+            pair = (protocol.lower(), content.strip())
+            if pair not in seen:
+                seen.add(pair)
+                mcp_tags.append(pair)
+            else:
+                logger.debug(
+                    "Duplicate MCP tag ignored: %s / %s…",
+                    protocol, content.strip()[:40],
+                )
 
         # Extract legacy tags (for backward compatibility)
         for pattern in self.legacy_patterns:
             legacy_matches = pattern.findall(text)
             for content in legacy_matches:
-                # Map legacy tags to the terminal protocol
-                mcp_tags.append(("terminal", content.strip()))
+                pair = ("terminal", content.strip())
+                if pair not in seen:
+                    seen.add(pair)
+                    mcp_tags.append(pair)
 
         return mcp_tags
 
