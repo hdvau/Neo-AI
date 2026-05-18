@@ -666,7 +666,16 @@ class NeoAI:
                 # Check if the protocol was executed
                 if result.get("executed", False):
                     command = result.get("command", "unknown command")
-                    output = result.get("output", "No output")
+                    output = result.get("output", "")
+
+                    # When the command produced no output (e.g. rm, mv, mkdir)
+                    # there is nothing for the model to summarise.  Asking it
+                    # to do so just makes it echo the command back ("completed
+                    # with no output") which is redundant noise.  Print a
+                    # simple "Done." and skip the model round-trip entirely.
+                    if not output.strip():
+                        print("\033[1;34mNeo:\033[0m Done.")
+                        continue
 
                     # Create a follow-up message for this protocol.
                     # The explicit instruction is critical: small models tend to
