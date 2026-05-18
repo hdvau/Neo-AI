@@ -223,8 +223,10 @@ class ImprovedTerminalUI:
                         mode = parts[1].lower()
                         model = parts[2] if len(parts) >= 3 else ""
                         msg = self.neo_ai.switch_mode(mode, model)
+                        # msg is plain text — wrap in HTML-safe bold tags here,
+                        # never embed ANSI codes inside HTML() strings.
                         print_formatted_text(
-                            HTML(f'<ansiblue>{msg}</ansiblue>'),
+                            HTML(f'<ansiblue><b>{msg}</b></ansiblue>'),
                             style=NEO_STYLE,
                         )
 
