@@ -337,8 +337,9 @@ class ImprovedTerminalUI:
                                 i += 1
 
                         def _progress(msg):
+                            from html import escape
                             print_formatted_text(
-                                HTML(f'<ansigray>{msg}</ansigray>'),
+                                HTML(f'<ansigray>{escape(msg)}</ansigray>'),
                                 style=NEO_STYLE,
                             )
 
