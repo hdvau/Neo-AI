@@ -88,6 +88,7 @@ class TerminalInterface:
             rb_path = parts[1]
             tag_filter = ""
             section_filter = ""
+            show_raw = False
             remaining = parts[2:]
             i = 0
             while i < len(remaining):
@@ -97,6 +98,9 @@ class TerminalInterface:
                 elif remaining[i] in ('--section', '-s') and i + 1 < len(remaining):
                     section_filter = remaining[i + 1]
                     i += 2
+                elif remaining[i] == '--raw':
+                    show_raw = True
+                    i += 1
                 else:
                     i += 1
 
@@ -104,6 +108,7 @@ class TerminalInterface:
                 rb_path,
                 tag_filter=tag_filter,
                 section_filter=section_filter,
+                show_raw=show_raw,
             )
             return True
 

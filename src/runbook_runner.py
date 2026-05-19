@@ -228,8 +228,13 @@ class RunbookRunner:
         tag_filter: Optional[str] = None,
         section_filter: Optional[str] = None,
         progress_cb=None,
+        log_path: Optional[Path] = None,
     ) -> tuple:
         """Parse and execute a runbook, returning output grouped by major section.
+
+        Args:
+            log_path: If provided, the raw command output is written to this
+                      file so the user can verify AI findings against reality.
 
         Returns:
             (ParsedRunbook, list[dict]) where each dict has:
@@ -258,9 +263,17 @@ class RunbookRunner:
         total = len(sections)
         counter = 0
         result = []
+        log_lines = [
+            f"Runbook: {runbook.title}",
+            f"Executed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "=" * 70,
+        ]
 
         for section_title, subsections in groups.items():
             output_parts = []
+            log_lines.append(f"\n{'=' * 70}")
+            log_lines.append(f"SECTION: {section_title}")
+            log_lines.append('=' * 70)
 
             for sec in subsections:
                 counter += 1
@@ -271,6 +284,7 @@ class RunbookRunner:
                 output_parts.append(f"\n{'━' * 60}")
                 output_parts.append(f"SECTION {header}")
                 output_parts.append('━' * 60)
+                log_lines.append(f"\n--- {header} ---")
 
                 for cmd_block in sec.commands:
                     label_line = next(
@@ -282,8 +296,10 @@ class RunbookRunner:
                         progress_cb(f"    $ {label_line[:80]}{'…' if len(label_line) > 80 else ''}")
 
                     output_parts.append(f"\n$ {label_line}")
+                    log_lines.append(f"\n$ {cmd_block.strip()}")
                     out = self._exec_block(cmd_block)
                     output_parts.append(out)
+                    log_lines.append(out)
 
                 if sec.analyze:
                     output_parts.append(f"\n[Analysis criteria for {sec.number}]")
@@ -293,6 +309,15 @@ class RunbookRunner:
                 'title':  section_title,
                 'output': "\n".join(output_parts),
             })
+
+        # Write raw output log if a path was provided.
+        if log_path:
+            try:
+                log_path = Path(log_path)
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_path.write_text("\n".join(log_lines), encoding="utf-8")
+            except OSError as e:
+                logging.warning("Could not write runbook log to %s: %s", log_path, e)
 
         return runbook, result
 
