@@ -6,14 +6,17 @@ class TerminalInterface:
     def __init__(self, neo_ai, config):
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['history', 'exit', 'neo-use', 'neo-verbose']
+        self.commands = ['history', 'exit', 'neo-use', 'neo-verbose', 'neo-tone']
 
     def completer(self, text, state):
-        # Expand "neo-use " to show valid modes
         line = readline.get_line_buffer()
         if line.startswith('neo-use '):
             prefix = line[len('neo-use '):]
-            options = [m for m in NeoAI.VALID_MODES if m.startswith(prefix)]
+            nicks = [f"ollama:{n}" for n in self.neo_ai.list_nicknames("ollama")]
+            options = [m for m in list(NeoAI.VALID_MODES) + nicks if m.startswith(prefix)]
+        elif line.startswith('neo-tone '):
+            prefix = line[len('neo-tone '):]
+            options = [t for t in self.neo_ai.list_tones() + ['off'] if t.startswith(prefix)]
         else:
             options = [c for c in self.commands if c.startswith(text)]
         if state < len(options):
@@ -31,6 +34,18 @@ class TerminalInterface:
         if lower == 'history':
             print("\033[1;33mDisplaying conversation history\033[0m")
             self.display_history()
+            return True
+
+        if lower.startswith('neo-tone'):
+            parts = user_input.split()
+            name = parts[1].lower() if len(parts) >= 2 else ""
+            if not name:
+                active = self.neo_ai._active_tone or "none"
+                available = ", ".join(self.neo_ai.list_tones())
+                print(f"\033[1;33mActive tone: {active}  |  Available: {available}\033[0m")
+            else:
+                msg = self.neo_ai.set_tone(name)
+                print(f"\033[1;34m{msg}\033[0m")
             return True
 
         if lower.startswith('neo-verbose'):
