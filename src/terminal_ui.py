@@ -376,11 +376,18 @@ class ImprovedTerminalUI:
                     _stop = threading.Event()
                     _t = threading.Thread(target=_spinner_thread, args=(_stop,), daemon=True)
                     _t.start()
+
+                    def _stop_spinner():
+                        _stop.set()
+                        _t.join()
+
+                    self.neo_ai._pre_output_cb = _stop_spinner
                     try:
                         self.neo_ai.query(user_input, clear_thinking=True)
                     finally:
                         _stop.set()
                         _t.join()
+                        self.neo_ai._pre_output_cb = None
 
             except KeyboardInterrupt:
                 print_formatted_text(HTML('\n<ansired>Interrupted. Type "exit" to quit.</ansired>'), style=NEO_STYLE)
