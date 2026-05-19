@@ -16,6 +16,7 @@ from prompt_toolkit import print_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.completion import WordCompleter
 import re
+from src.runbook_runner import RunbookRunner
 
 # Define colors and styles
 NEO_STYLE = Style.from_dict({
@@ -45,7 +46,7 @@ class ImprovedTerminalUI:
         """Initialize the terminal UI with Neo AI instance and config."""
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose']
+        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose', 'neo-run']
 
         # Create history file in user's home directory
         history_file = os.path.expanduser('~/.neo_history.txt')
@@ -72,6 +73,9 @@ class ImprovedTerminalUI:
         for _nick in neo_ai.list_nicknames("ollama"):
             _neo_use_completions.append(f"ollama:{_nick}")
 
+        # Runbook name completions (stem names of *.md files in config/runbooks/)
+        _neo_run_completions = RunbookRunner.list_runbooks()
+
         class CommandStartCompleter(WordCompleter):
             def get_completions(self, document, complete_event):
                 text_before_cursor = document.text_before_cursor
@@ -81,6 +85,15 @@ class ImprovedTerminalUI:
                     partial = text_before_cursor.split()[-1] if not text_before_cursor.endswith(' ') else ''
                     from prompt_toolkit.completion import Completion
                     for option in _neo_use_completions:
+                        if option.startswith(partial):
+                            yield Completion(option, start_position=-len(partial))
+                    return
+
+                # After "neo-run " complete with runbook names
+                if text_before_cursor.lstrip().startswith('neo-run '):
+                    partial = text_before_cursor.split()[-1] if not text_before_cursor.endswith(' ') else ''
+                    from prompt_toolkit.completion import Completion
+                    for option in _neo_run_completions:
                         if option.startswith(partial):
                             yield Completion(option, start_position=-len(partial))
                     return
@@ -114,20 +127,28 @@ class ImprovedTerminalUI:
         modes = ', '.join(NeoAI.VALID_MODES)
         ollama_nicks = self.neo_ai.list_nicknames("ollama")
         nick_examples = "  ".join(f"neo-use ollama:{n}" for n in list(ollama_nicks)[:3])
+        runbooks = ', '.join(RunbookRunner.list_runbooks()) or '(none found)'
         help_text = f"""
 <info>Available commands:</info>
-  • <highlight>help</highlight>                       - Show this help menu
-  • <highlight>history</highlight>                    - Show conversation history
-  • <highlight>clear</highlight>                      - Clear the screen
-  • <highlight>exit</highlight>                       - Exit Neo AI
-  • <highlight>neo-verbose [on|off]</highlight>        - Toggle verbose output (show/hide MCP tags)
-  • <highlight>neo-use &lt;mode&gt; [model]</highlight>  - Switch AI backend at runtime
+  • <highlight>help</highlight>                                  - Show this help menu
+  • <highlight>history</highlight>                               - Show conversation history
+  • <highlight>clear</highlight>                                 - Clear the screen
+  • <highlight>exit</highlight>                                  - Exit Neo AI
+  • <highlight>neo-verbose [on|off]</highlight>                   - Toggle verbose output (show/hide MCP tags)
+  • <highlight>neo-use &lt;mode&gt; [model]</highlight>           - Switch AI backend at runtime
       Modes: {modes}
       Examples:
         neo-use claude
         neo-use openai gpt-4o
         neo-use ollama mistral:latest
         {nick_examples}  (Ollama nicknames from config)
+  • <highlight>neo-run &lt;runbook&gt; [--tag TAG] [--section N]</highlight>
+      Run a structured Markdown runbook and send the output to AI for analysis.
+      Available runbooks: {runbooks}
+      Examples:
+        neo-run homeserver-runbook
+        neo-run homeserver-runbook --tag DAILY
+        neo-run homeserver-runbook --section 3
 
 <info>Tips:</info>
   • Use <highlight>Tab</highlight> for command and mode completion
@@ -253,6 +274,47 @@ class ImprovedTerminalUI:
                         print_formatted_text(
                             HTML(f'<ansiblue><b>{msg}</b></ansiblue>'),
                             style=NEO_STYLE,
+                        )
+
+                elif user_input.lower().startswith('neo-run'):
+                    parts = user_input.split()
+                    if len(parts) < 2:
+                        available = ', '.join(RunbookRunner.list_runbooks()) or '(none found)'
+                        print_formatted_text(
+                            HTML(
+                                f'<info>Usage: neo-run &lt;runbook&gt; [--tag TAG] [--section N]</info>\n'
+                                f'<info>Available runbooks: {available}</info>'
+                            ),
+                            style=NEO_STYLE,
+                        )
+                    else:
+                        rb_path = parts[1]
+                        tag_filter = ""
+                        section_filter = ""
+                        # Parse optional flags
+                        remaining = parts[2:]
+                        i = 0
+                        while i < len(remaining):
+                            if remaining[i] in ('--tag', '-t') and i + 1 < len(remaining):
+                                tag_filter = remaining[i + 1]
+                                i += 2
+                            elif remaining[i] in ('--section', '-s') and i + 1 < len(remaining):
+                                section_filter = remaining[i + 1]
+                                i += 2
+                            else:
+                                i += 1
+
+                        def _progress(msg):
+                            print_formatted_text(
+                                HTML(f'<ansigray>{msg}</ansigray>'),
+                                style=NEO_STYLE,
+                            )
+
+                        self.neo_ai.run_runbook(
+                            rb_path,
+                            tag_filter=tag_filter,
+                            section_filter=section_filter,
+                            progress_cb=_progress,
                         )
 
                 else:
