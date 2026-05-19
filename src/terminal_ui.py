@@ -16,7 +16,21 @@ from prompt_toolkit import print_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.completion import WordCompleter
 import re
+import threading
+import time
+import itertools
 from src.runbook_runner import RunbookRunner
+
+_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+
+def _spinner_thread(stop_event: threading.Event) -> None:
+    for frame in itertools.cycle(_SPINNER_FRAMES):
+        if stop_event.is_set():
+            break
+        print(f'\r{frame} Thinking.', end='', flush=True)
+        time.sleep(0.1)
+    print('\r' + ' ' * 20 + '\r', end='', flush=True)
 
 # Define colors and styles
 NEO_STYLE = Style.from_dict({
@@ -359,9 +373,14 @@ class ImprovedTerminalUI:
                         )
 
                 else:
-                    print_formatted_text(HTML('<output>Thinking...</output>'), style=NEO_STYLE, end='\r')
-
-                    self.neo_ai.query(user_input, clear_thinking=True)
+                    _stop = threading.Event()
+                    _t = threading.Thread(target=_spinner_thread, args=(_stop,), daemon=True)
+                    _t.start()
+                    try:
+                        self.neo_ai.query(user_input, clear_thinking=True)
+                    finally:
+                        _stop.set()
+                        _t.join()
 
             except KeyboardInterrupt:
                 print_formatted_text(HTML('\n<ansired>Interrupted. Type "exit" to quit.</ansired>'), style=NEO_STYLE)
