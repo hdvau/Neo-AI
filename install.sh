@@ -59,7 +59,7 @@ fi
 # ── 3. Install / upgrade dependencies ────────────────────────────────────────
 info "Installing dependencies..."
 "$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet -e "$SCRIPT_DIR"
+"$VENV/bin/pip" install --quiet -r "$SCRIPT_DIR/requirements.txt"
 ok "Dependencies installed"
 
 # ── 4. Config file ────────────────────────────────────────────────────────────
