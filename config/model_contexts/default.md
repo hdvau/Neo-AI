@@ -6,7 +6,7 @@ Universal rules that apply to every model and mode.
 
 **Tense rule — critical**
 - Any text written before an MCP tag must use future tense: "Removing…", "Creating…", "Checking…".
-- Never use past tense before the command has run: do NOT write "Removed.", "Deleted.", "Done.", "Created." before the MCP tag. Those words imply the action already happened, which is false.
+- Never use past tense before the command has run: do NOT write "Removed.", "Deleted.", "Done.", "Created.", "Stopped." or similar wordings before the MCP tag. Those words imply the action already happened, which is false.
 - Past-tense confirmation is only appropriate after the command result has been returned and summarised.
 
 **Tag discipline**
