@@ -846,33 +846,41 @@ class NeoAI:
     # ── Runbook support ───────────────────────────────────────────────────────
 
     def _query_oneshot(self, prompt: str) -> str:
-        """Query the model with ONLY the system prompt + *prompt* — no history.
+        """Query the model with a minimal analysis-only system prompt + *prompt*.
 
-        Used for runbook section analysis so that each section is evaluated
-        independently without accumulating context from previous sections.
-        The result is NOT added to self.history.
+        Intentionally does NOT include the main PrePromt.md system prompt
+        (which instructs the model to use MCP tags for command execution).
+        Without that instruction the model just analyses text and returns
+        findings — which is exactly what runbook section analysis needs.
+
+        No conversation history is included and the result is NOT added to
+        self.history, keeping each section query fully independent.
         """
-        system_msg = self.history[0] if self.history and self.history[0]["role"] == "system" else None
-        messages = []
-        if system_msg:
-            messages.append(system_msg)
-        messages.append({"role": "user", "content": prompt})
+        # Minimal system prompt — analysis only, no tool/command execution.
+        analysis_system = (
+            "You are a server health-check analyst. "
+            "Analyse the command output provided and report findings concisely. "
+            "Do NOT execute any commands or use any tool calls. "
+            "Just read the text and report what you find."
+        )
 
         try:
             if self.mode == "claude":
-                system = system_msg["content"] if system_msg else ""
-                user_msgs = [{"role": "user", "content": prompt}]
                 full_response = ""
                 with self._anthropic_client.messages.stream(
                     model=self.model,
                     max_tokens=self._claude_max_tokens,
-                    system=system,
-                    messages=user_msgs,
+                    system=analysis_system,
+                    messages=[{"role": "user", "content": prompt}],
                 ) as stream:
                     for text in stream.text_stream:
                         full_response += text
                 return full_response.strip()
             else:
+                messages = [
+                    {"role": "system", "content": analysis_system},
+                    {"role": "user", "content": prompt},
+                ]
                 completion = openai.ChatCompletion.create(
                     model=self.model,
                     messages=messages,
@@ -994,6 +1002,8 @@ class NeoAI:
         self.history.append({"role": "user", "content": summary_prompt})
         self._trim_history()
 
+        # _query_raw / _query_claude_raw both call _print_streamed() internally,
+        # so the summary is already printed to the terminal — do not print again.
         if self.mode == "claude":
             summary = self._query_claude_raw(summary_prompt)
         else:
@@ -1001,7 +1011,6 @@ class NeoAI:
 
         if summary:
             self.history.append({"role": "assistant", "content": summary})
-            print("\033[1;34mNeo:\033[0m", summary)
         else:
             print("\033[1;34mNeo:\033[0m (no summary returned)")
 
