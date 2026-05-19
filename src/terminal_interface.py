@@ -1,12 +1,13 @@
 import readline
 from src.ai_core import NeoAI
+from src.runbook_runner import RunbookRunner
 
 
 class TerminalInterface:
     def __init__(self, neo_ai, config):
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['history', 'exit', 'neo-use', 'neo-verbose']
+        self.commands = ['history', 'exit', 'neo-use', 'neo-verbose', 'neo-run']
 
     def completer(self, text, state):
         # Expand "neo-use " to show valid modes
@@ -14,6 +15,9 @@ class TerminalInterface:
         if line.startswith('neo-use '):
             prefix = line[len('neo-use '):]
             options = [m for m in NeoAI.VALID_MODES if m.startswith(prefix)]
+        elif line.startswith('neo-run '):
+            prefix = line[len('neo-run '):]
+            options = [r for r in RunbookRunner.list_runbooks() if r.startswith(prefix)]
         else:
             options = [c for c in self.commands if c.startswith(text)]
         if state < len(options):
@@ -58,6 +62,36 @@ class TerminalInterface:
             # Wrap with ANSI bold+blue — safe here because we're using plain print,
             # not prompt_toolkit's HTML parser.
             print(f"\033[1;34m{msg}\033[0m")
+            return True
+
+        if lower.startswith('neo-run'):
+            parts = user_input.split()
+            if len(parts) < 2:
+                available = ', '.join(RunbookRunner.list_runbooks()) or '(none found)'
+                print(f"\033[1;33mUsage: neo-run <runbook> [--tag TAG] [--section N]\033[0m")
+                print(f"  Available runbooks: {available}")
+                return True
+
+            rb_path = parts[1]
+            tag_filter = ""
+            section_filter = ""
+            remaining = parts[2:]
+            i = 0
+            while i < len(remaining):
+                if remaining[i] in ('--tag', '-t') and i + 1 < len(remaining):
+                    tag_filter = remaining[i + 1]
+                    i += 2
+                elif remaining[i] in ('--section', '-s') and i + 1 < len(remaining):
+                    section_filter = remaining[i + 1]
+                    i += 2
+                else:
+                    i += 1
+
+            self.neo_ai.run_runbook(
+                rb_path,
+                tag_filter=tag_filter,
+                section_filter=section_filter,
+            )
             return True
 
         return False

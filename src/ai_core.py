@@ -781,3 +781,70 @@ class NeoAI:
         self.history = []
         self.context_initialized = False
         self.auto_approve_all = False
+
+    # ── Runbook support ───────────────────────────────────────────────────────
+
+    def run_runbook(
+        self,
+        path_str: str,
+        tag_filter: str = "",
+        section_filter: str = "",
+        progress_cb=None,
+    ) -> str:
+        """Parse and execute a runbook, then ask the AI to analyse the output.
+
+        All commands in the runbook are executed automatically — no approval
+        prompts are shown (runbooks are explicitly trusted by the user).
+
+        Args:
+            path_str:       Path or stem name of the runbook file.
+            tag_filter:     Optional tag to filter sections (e.g. "DAILY").
+            section_filter: Optional section number prefix filter (e.g. "3").
+            progress_cb:    Optional callable(message: str) for live progress.
+
+        Returns:
+            The AI's analysis as a string.
+        """
+        from src.runbook_runner import RunbookRunner
+
+        runner = RunbookRunner(
+            command_timeout=self.config.get('command_timeout', 60)
+        )
+
+        if not progress_cb:
+            def progress_cb(msg):
+                print(f"\033[90m{msg}\033[0m", flush=True)
+
+        try:
+            runbook, collected_output = runner.run(
+                path_str,
+                tag_filter=tag_filter or None,
+                section_filter=section_filter or None,
+                progress_cb=progress_cb,
+            )
+        except FileNotFoundError as exc:
+            return str(exc)
+
+        ai_prompt = runner.build_ai_prompt(runbook, collected_output)
+
+        print()
+        print("\033[1;34mNeo:\033[0m Analysing runbook output…", flush=True)
+        print()
+
+        self.history.append({"role": "user", "content": ai_prompt})
+        self._trim_history()
+
+        # Use the raw query path so the AI's analysis cannot accidentally
+        # trigger MCP command execution (e.g. if output contains tag-like text).
+        if self.mode == "claude":
+            analysis = self._query_claude_raw(ai_prompt)
+        else:
+            analysis = self._query_raw(ai_prompt)
+
+        if analysis:
+            self.history.append({"role": "assistant", "content": analysis})
+            print("\033[1;34mNeo:\033[0m", analysis)
+        else:
+            print("\033[1;34mNeo:\033[0m (no analysis returned)")
+
+        return analysis or ""
