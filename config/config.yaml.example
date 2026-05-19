@@ -10,7 +10,17 @@ mode: "ollama"
 # List available models: ollama list
 ollama_config:
   api_url: "http://localhost:11434/v1"   # Ollama's OpenAI-compatible endpoint
-  model: "llama3.2"                       # Change to any model you have pulled
+  model: "llama3.2"                       # Default model (used by: neo-use ollama)
+
+  # ── Model nicknames ───────────────────────────────────────────────────────────
+  # Map short nicknames to the full Ollama model names returned by `ollama list`.
+  # Usage:  neo-use ollama:gemma   neo-use ollama:qwencode
+  # Tab-completion in the UI picks these up automatically.
+  models:
+    gemma:    "gemma4"
+    qwencode: "qwen3-coder"
+    llama:    "llama3.2"
+    mistral:  "mistral:latest"
 
 # ── LM Studio (local, no API key required) ───────────────────────────────────
 lm_studio_config:
