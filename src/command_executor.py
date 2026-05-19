@@ -21,7 +21,13 @@ class PersistentTerminalExecutor:
 
     def __init__(self):
         """Initialize the persistent terminal executor."""
-        self.temp_dir = tempfile.gettempdir()
+        # Use a user-specific subdirectory so multiple users on the same host
+        # never collide on shared files (log, lock, fifo, pid, output).
+        # /tmp/neo_<uid>/ is owned and readable only by that user.
+        _base_tmp = tempfile.gettempdir()
+        _uid = os.getuid() if hasattr(os, 'getuid') else 0
+        self.temp_dir = os.path.join(_base_tmp, f"neo_{_uid}")
+        os.makedirs(self.temp_dir, mode=0o700, exist_ok=True)
         self.output_file = os.path.join(self.temp_dir, "neo_command_output.txt")
         self.lock_file = os.path.join(self.temp_dir, "neo_command_lock")
         self.pid_file = os.path.join(self.temp_dir, "neo_terminal_pid.txt")
