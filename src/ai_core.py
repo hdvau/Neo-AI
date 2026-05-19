@@ -509,6 +509,47 @@ class NeoAI:
 
     VALID_MODES = ('ollama', 'lm_studio', 'openai', 'claude')
 
+    def _resolve_nickname(self, base_mode: str, nickname: str) -> tuple:
+        """Resolve a model nickname to its full name.
+
+        Looks up *nickname* (case-insensitive) in the ``models`` dict of the
+        matching mode config block.  Returns ``(resolved_model, error_str)``
+        where *error_str* is ``None`` on success or a human-readable message
+        listing available nicknames when the lookup fails.
+
+        Example config::
+
+            ollama_config:
+              models:
+                gemma:    gemma4
+                qwencode: qwen3-coder
+        """
+        cfg_key = f"{base_mode}_config"
+        models_map: dict = self.config.get(cfg_key, {}).get("models", {})
+
+        if not models_map:
+            return "", (
+                f"No model nicknames configured for '{base_mode}'. "
+                f"Add a 'models:' block under '{cfg_key}' in config.yaml."
+            )
+
+        # Case-insensitive lookup
+        needle = nickname.lower()
+        for alias, full_name in models_map.items():
+            if alias.lower() == needle:
+                return str(full_name), None
+
+        available = ", ".join(models_map.keys())
+        return "", (
+            f"Unknown nickname '{nickname}' for mode '{base_mode}'. "
+            f"Available: {available}"
+        )
+
+    def list_nicknames(self, base_mode: str) -> dict:
+        """Return the nickname → model mapping for *base_mode* (for UI completion)."""
+        cfg_key = f"{base_mode}_config"
+        return dict(self.config.get(cfg_key, {}).get("models", {}))
+
     def switch_mode(self, mode: str, model: str = "") -> str:
         """Switch backend/model at runtime without restarting.
 
@@ -520,6 +561,22 @@ class NeoAI:
             model: Optional model override (e.g. 'gpt-4o', 'mistral:latest').
                    When omitted the value from config.yaml is used.
         """
+        # Handle "mode:nickname" shorthand (e.g. "ollama:gemma")
+        if ":" in mode:
+            base_mode, nickname = mode.split(":", 1)
+            base_mode = base_mode.strip().lower()
+            nickname = nickname.strip()
+            if base_mode not in self.VALID_MODES:
+                return (
+                    f"Unknown mode '{base_mode}'. "
+                    f"Valid modes: {', '.join(self.VALID_MODES)}"
+                )
+            resolved, err = self._resolve_nickname(base_mode, nickname)
+            if err:
+                return err
+            # Delegate to the normal path with the resolved model name
+            return self.switch_mode(base_mode, resolved)
+
         if mode not in self.VALID_MODES:
             return (
                 f"Unknown mode '{mode}'. "

@@ -66,17 +66,23 @@ class ImprovedTerminalUI:
                 pass
 
         # Create a custom completer that expands commands and mode names
+        # Build the full list of neo-use completions once:
+        # plain modes + "ollama:nickname" shortcuts from config
+        _neo_use_completions = list(NeoAI.VALID_MODES)
+        for _nick in neo_ai.list_nicknames("ollama"):
+            _neo_use_completions.append(f"ollama:{_nick}")
+
         class CommandStartCompleter(WordCompleter):
             def get_completions(self, document, complete_event):
                 text_before_cursor = document.text_before_cursor
 
-                # After "neo-use " complete with valid mode names
+                # After "neo-use " complete with modes and ollama:nickname shortcuts
                 if text_before_cursor.lstrip().startswith('neo-use '):
                     partial = text_before_cursor.split()[-1] if not text_before_cursor.endswith(' ') else ''
                     from prompt_toolkit.completion import Completion
-                    for mode in NeoAI.VALID_MODES:
-                        if mode.startswith(partial):
-                            yield Completion(mode, start_position=-len(partial))
+                    for option in _neo_use_completions:
+                        if option.startswith(partial):
+                            yield Completion(option, start_position=-len(partial))
                     return
 
                 # Only complete commands at the start of the line
@@ -106,6 +112,8 @@ class ImprovedTerminalUI:
     def print_help(self):
         """Display help menu."""
         modes = ', '.join(NeoAI.VALID_MODES)
+        ollama_nicks = self.neo_ai.list_nicknames("ollama")
+        nick_examples = "  ".join(f"neo-use ollama:{n}" for n in list(ollama_nicks)[:3])
         help_text = f"""
 <info>Available commands:</info>
   • <highlight>help</highlight>                       - Show this help menu
@@ -119,6 +127,7 @@ class ImprovedTerminalUI:
         neo-use claude
         neo-use openai gpt-4o
         neo-use ollama mistral:latest
+        {nick_examples}  (Ollama nicknames from config)
 
 <info>Tips:</info>
   • Use <highlight>Tab</highlight> for command and mode completion
@@ -232,7 +241,7 @@ class ImprovedTerminalUI:
                     if len(parts) < 2:
                         modes = ', '.join(NeoAI.VALID_MODES)
                         print_formatted_text(
-                            HTML(f'<info>Usage: neo-use &lt;mode&gt; [model]  —  Modes: {modes}</info>'),
+                            HTML(f'<info>Usage: neo-use &lt;mode&gt; [model]  or  neo-use ollama:&lt;nickname&gt;  —  Modes: {modes}</info>'),
                             style=NEO_STYLE,
                         )
                     else:
