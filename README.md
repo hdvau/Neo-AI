@@ -13,7 +13,9 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 - **Multiple AI backends** — Ollama, LM Studio, OpenAI API, Anthropic Claude API
 - **Hot-swap backends** — switch model or provider mid-session with `neo-use`
 - **Ollama model nicknames** — define short aliases (`gemma`, `qwencode`) in config and switch with `neo-use ollama:gemma`
-- **Model-specific context plugins** — drop a `.md` file into `config/model_contexts/` to inject model-aware instructions automatically
+- **Model-specific context plugins** — drop a `.md` file into `config/model_contexts/` to inject model-aware instructions automatically; Ollama supports per-model plugin files (e.g. `ollama.gemma.md`)
+- **Tone system** — switch Neo's communication style mid-session with `neo-tone` (professional, technical, minimal, or off)
+- **Runbook support** — run structured Markdown health-check runbooks with `neo-run`; all commands execute without approval prompts and the AI analyses the collected output
 - **Clean output by default** — MCP protocol tags are hidden; toggle verbose mode with `neo-verbose`
 - **Conversation history** with configurable length and automatic trimming
 - **Persistent memory** loaded as context at startup
@@ -155,7 +157,9 @@ dha@neo [ollama:gemma4:latest] >
 | `exit` | Quit Neo |
 | `neo-use <mode> [model]` | Switch AI backend at runtime |
 | `neo-use ollama:<nickname>` | Switch to an Ollama model by nickname |
-| `neo-verbose [on\|off]` | Toggle verbose output |
+| `neo-verbose [on\|off]` | Toggle verbose output (show/hide MCP tags) |
+| `neo-tone <name\|off>` | Switch Neo's communication tone |
+| `neo-run <runbook> [--tag TAG] [--section N]` | Run a health-check runbook |
 
 ### Switching backends mid-session
 
@@ -204,6 +208,73 @@ neo-verbose on       # show raw model output including MCP tags
 neo-verbose off      # back to clean output (default)
 ```
 
+### Tone system
+
+Switch Neo's communication style at any point without restarting:
+
+```
+neo-tone professional   # formal, structured, precise
+neo-tone technical      # terse, command-focused, no filler text
+neo-tone minimal        # single-sentence answers, no explanations
+neo-tone off            # revert to the default tone from PrePromt.md
+```
+
+Tones are plain `.md` files in `config/tones/`. Add your own by dropping a file there — no code changes needed. The active tone is appended to the system prompt as a third layer (after the base prompt and model-context plugins) and survives `neo-use` backend switches.
+
+---
+
+## Runbooks
+
+Runbooks are structured Markdown files that automate repeatable health checks or diagnostic tasks. Neo executes every command block in order — **no approval prompts** (runbooks are explicitly trusted) — then sends the full output to the AI for analysis and a structured report.
+
+### Running a runbook
+
+```
+neo-run linux-server-health                        # full run
+neo-run linux-server-health --tag DAILY            # only [DAILY]-tagged sections
+neo-run linux-server-health --section 3            # only section 3.x subsections
+neo-run /path/to/custom-runbook.md                 # absolute or relative path
+```
+
+Tab completion suggests runbook names from `config/runbooks/`.
+
+### Runbook format
+
+```markdown
+# My Runbook Title
+
+## Agent Instructions
+Tell the AI how to interpret the output...
+
+## Agent Output Format
+Define the exact report structure the AI should produce...
+
+## Baseline Reference
+Expected values for this specific server...
+
+## 1. Section Title [DAILY]
+
+### 1.1 Subsection Title
+
+\`\`\`bash
+command --to --run
+\`\`\`
+
+**Analyze:**
+- threshold rule 1
+- threshold rule 2
+```
+
+**Section tags** (e.g. `[DAILY]`, `[WEEKLY]`) let you filter what runs. Special sections (`Agent Instructions`, `Agent Output Format`, `Baseline Reference`) are never executed — they are passed to the AI as context only.
+
+### Bundled runbooks
+
+| File | Purpose |
+|---|---|
+| `linux-server-health.md` | Disk health, performance, Docker, networking, failed logins |
+
+Place your own runbooks in `config/runbooks/` — they appear in Tab completion immediately.
+
 ---
 
 ## Model Context Plugins
@@ -224,6 +295,8 @@ Output each MCP tag exactly once. Do not narrate your reasoning steps...
 
 **To add your own:** drop a `.md` file into `config/model_contexts/` — no code changes needed. Neo picks it up on next start (or after `neo-use`).
 
+Plugins are loaded in scoring order — `default.md` always first, then mode-specific, then model-specific — so instructions stack additively rather than replacing each other.
+
 Bundled plugins:
 
 | File | Applies to |
@@ -233,6 +306,10 @@ Bundled plugins:
 | `openai.md` | All OpenAI models |
 | `openai_reasoning.md` | o1 / o3 / o4 / gpt-5 series |
 | `ollama.md` | All Ollama models |
+| `ollama.gemma.md` | Ollama + gemma4 / gemma3 / gemma family |
+| `ollama.qwen.md` | Ollama + qwen3 / qwen2 / qwen family |
+| `ollama.llama.md` | Ollama + llama3 / llama2 / llama family |
+| `ollama.mistral.md` | Ollama + mistral / mixtral / devstral family |
 | `lm_studio.md` | All LM Studio models |
 
 ---
@@ -297,16 +374,28 @@ Neo-AI/
 ├── config/
 │   ├── config.yaml.example          # Template — copied to config.yaml on install
 │   ├── PrePromt.md                  # Base system prompt loaded at startup
-│   └── model_contexts/              # Model-specific context plugins (drop-in .md files)
-│       ├── default.md
-│       ├── claude.md
-│       ├── openai.md
-│       ├── openai_reasoning.md
-│       ├── ollama.md
-│       └── lm_studio.md
+│   ├── model_contexts/              # Model-specific context plugins (drop-in .md files)
+│   │   ├── default.md               #   Applied to every model
+│   │   ├── claude.md
+│   │   ├── openai.md
+│   │   ├── openai_reasoning.md      #   o1 / o3 / o4 / gpt-5 series
+│   │   ├── ollama.md
+│   │   ├── ollama.gemma.md          #   Gemma family
+│   │   ├── ollama.qwen.md           #   Qwen family
+│   │   ├── ollama.llama.md          #   Llama family
+│   │   ├── ollama.mistral.md        #   Mistral / Mixtral family
+│   │   └── lm_studio.md
+│   ├── tones/                       # Tone plugins (drop-in .md files)
+│   │   ├── professional.md
+│   │   ├── technical.md
+│   │   ├── minimal.md
+│   │   └── casual.md
+│   └── runbooks/                    # Health-check runbooks (drop-in .md files)
+│       └── linux-server-health.md   #   Disk, performance, Docker, network, security
 ├── src/
-│   ├── ai_core.py                   # NeoAI class, backend dispatch, history
+│   ├── ai_core.py                   # NeoAI class, backend dispatch, history, runbooks
 │   ├── model_context_loader.py      # Plugin loader for model_contexts/
+│   ├── runbook_runner.py            # Runbook parser, executor, AI prompt builder
 │   ├── approval_handler.py          # Command approval prompts
 │   ├── command_executor.py          # Inline command execution (streaming)
 │   ├── terminal_interface.py        # Classic readline UI
