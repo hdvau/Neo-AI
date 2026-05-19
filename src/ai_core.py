@@ -977,14 +977,8 @@ class NeoAI:
                 f"You have analysed each section of the '{runbook.title}' runbook.\n"
                 f"Here are the per-section findings:\n\n"
                 f"{combined_analyses}\n\n"
-            )
-            if runbook.agent_instructions:
-                summary_prompt = (
-                    f"Instructions: {runbook.agent_instructions}\n\n"
-                    + summary_prompt
-                )
-            summary_prompt += (
-                f"Now produce the final report using exactly this structure:\n\n"
+                f"Now produce the final consolidated report using exactly "
+                f"this structure:\n\n"
                 f"{runbook.output_format}"
             )
         else:
@@ -997,20 +991,23 @@ class NeoAI:
                 f"- Recommended actions"
             )
 
-        # Summary goes into conversation history so the user can ask follow-up
-        # questions about the runbook results.
-        self.history.append({"role": "user", "content": summary_prompt})
-        self._trim_history()
+        if runbook.agent_instructions:
+            summary_prompt = (
+                f"Instructions: {runbook.agent_instructions}\n\n"
+                + summary_prompt
+            )
 
-        # _query_raw / _query_claude_raw both call _print_streamed() internally,
-        # so the summary is already printed to the terminal — do not print again.
-        if self.mode == "claude":
-            summary = self._query_claude_raw(summary_prompt)
-        else:
-            summary = self._query_raw(summary_prompt)
+        # Use _query_oneshot() — the same minimal system prompt used for
+        # section analysis — so the model stays in "analyst" mode and does
+        # not try to execute MCP commands or follow history from PrePromt.md.
+        summary = self._query_oneshot(summary_prompt)
 
+        # Print and store in history so the user can ask follow-up questions.
         if summary:
+            print(f"\033[1;34mNeo:\033[0m {summary}")
+            self.history.append({"role": "user",      "content": summary_prompt})
             self.history.append({"role": "assistant", "content": summary})
+            self._trim_history()
         else:
             print("\033[1;34mNeo:\033[0m (no summary returned)")
 
