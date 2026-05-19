@@ -3,6 +3,7 @@ import os
 import platform
 import re
 import shutil
+from pathlib import Path
 from src.command_executor import execute_command_in_terminal, execute_command
 from src.utils import load_persistent_memory
 from src.mcp_protocol import mcp  # Import the MCP singleton
@@ -96,6 +97,16 @@ class NeoAI:
         # growth and token-limit breaches. Keeps the last N message pairs.
         self._max_history_messages: int = config.get('max_history_messages', 40)
 
+        # Active tone — name and content loaded from config/tones/<name>.md.
+        # Empty string means no tone injection (model uses its default style).
+        self._active_tone: str = ""
+        self._tone_content: str = ""
+
+        # Directory that holds tone .md files.
+        self._tones_dir: Path = (
+            Path(__file__).parent.parent / "config" / "tones"
+        )
+
         # Load the system prompt (PrePromt.md) so the model knows to use
         # MCP tags for command execution. Without this the model answers as a
         # plain chatbot and never generates <mcp:terminal> tags.
@@ -160,15 +171,24 @@ class NeoAI:
         self.history = [{"role": "system", "content": self._build_system_prompt()}]
 
     def _build_system_prompt(self) -> str:
-        """Combine the base PrePromt with any matching model-context plugins.
+        """Combine the base PrePromt, model-context plugins, and active tone.
 
-        Called once at startup and again whenever the active mode or model
-        changes so the injected context always matches the current backend.
+        Called once at startup and again whenever mode, model, or tone changes.
+        Layer order:
+          1. PrePromt.md         — core identity and MCP rules
+          2. model_contexts/     — backend/model-specific behaviour
+          3. tones/<name>.md     — active tone override (if any)
         """
+        parts = [self._base_system_prompt]
+
         extra = ModelContextLoader.load(self.mode, self.model)
         if extra:
-            return f"{self._base_system_prompt}\n\n---\n\n{extra}"
-        return self._base_system_prompt
+            parts.append(extra)
+
+        if self._tone_content:
+            parts.append(f"## Active tone\n\n{self._tone_content}")
+
+        return "\n\n---\n\n".join(parts)
 
     # ── Verbose toggle ────────────────────────────────────────────────────────
 
@@ -204,6 +224,52 @@ class NeoAI:
             else "MCP tags hidden — clean output mode."
         )
         return f"Verbose {status}. {detail}"
+
+    # ── Tone ──────────────────────────────────────────────────────────────────
+
+    def list_tones(self) -> list:
+        """Return available tone names (stems of .md files in config/tones/)."""
+        if not self._tones_dir.is_dir():
+            return []
+        return sorted(p.stem for p in self._tones_dir.glob("*.md"))
+
+    def set_tone(self, name: str = "") -> str:
+        """Load and activate a tone, or clear the active tone.
+
+        Args:
+            name: Tone name (filename stem from config/tones/).
+                  Pass "" or "off" to clear the active tone.
+
+        Returns:
+            A human-readable status string (plain text, no ANSI codes).
+        """
+        if not name or name.lower() == "off":
+            self._active_tone = ""
+            self._tone_content = ""
+            self._refresh_system_prompt()
+            return "Tone cleared — using default model style."
+
+        tone_file = self._tones_dir / f"{name}.md"
+        if not tone_file.exists():
+            available = ", ".join(self.list_tones()) or "none"
+            return f"Unknown tone '{name}'. Available: {available}"
+
+        try:
+            self._tone_content = tone_file.read_text(encoding="utf-8").strip()
+            self._active_tone = name
+            self._refresh_system_prompt()
+            return f"Tone set to '{name}'."
+        except OSError as exc:
+            return f"Could not load tone '{name}': {exc}"
+
+    def _refresh_system_prompt(self) -> None:
+        """Rebuild and update the system prompt entry in history."""
+        if self.history and self.history[0]["role"] == "system":
+            self.history[0]["content"] = self._build_system_prompt()
+            logging.debug(
+                "System prompt refreshed (mode=%s model=%s tone=%s)",
+                self.mode, self.model, self._active_tone or "none",
+            )
 
     def _trim_history(self) -> None:
         """Drop oldest messages when history exceeds the configured limit.
@@ -651,12 +717,7 @@ class NeoAI:
 
             self.mode = mode
             logging.info("Switched to mode=%s model=%s", self.mode, self.model)
-
-            # Refresh the system prompt so model-context plugins match the new backend.
-            if self.history and self.history[0]["role"] == "system":
-                self.history[0]["content"] = self._build_system_prompt()
-                logging.debug("System prompt updated for mode=%s model=%s", mode, self.model)
-
+            self._refresh_system_prompt()
             return f"Switched to {mode} — model: {self.model}"
 
         except Exception as e:
