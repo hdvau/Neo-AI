@@ -194,9 +194,22 @@ class NeoAI:
 
     @staticmethod
     def _strip_mcp_tags(text: str) -> str:
-        """Remove <mcp:…>…</mcp:…> blocks and clean up the surrounding whitespace."""
-        # Drop the whole tag including its command content
-        cleaned = re.sub(r'[ \t]*<mcp:\w+>.*?</mcp:\w+>[ \t]*', '', text, flags=re.DOTALL)
+        """Replace/remove <mcp:…>…</mcp:…> blocks for clean terminal display.
+
+        terminal tags: replaced with a fenced bash code block so the user
+          always sees the command, even if they decline execution or the
+          model used a tag where plain text was expected.
+        All other tags (files, analyze, …): removed silently.
+        """
+        # Replace terminal tags with a visible code block
+        cleaned = re.sub(
+            r'[ \t]*<mcp:terminal>(.*?)</mcp:terminal>[ \t]*',
+            lambda m: f'\n```bash\n{m.group(1).strip()}\n```\n',
+            text,
+            flags=re.DOTALL,
+        )
+        # Remove all other MCP tags silently
+        cleaned = re.sub(r'[ \t]*<mcp:\w+>.*?</mcp:\w+>[ \t]*', '', cleaned, flags=re.DOTALL)
         # Collapse runs of 3+ newlines down to two (preserve paragraph breaks)
         cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
         return cleaned.strip()
