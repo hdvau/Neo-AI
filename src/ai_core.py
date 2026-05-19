@@ -95,6 +95,9 @@ class NeoAI:
         self.lm_studio_config = config.get('lm_studio_config', {})
         self.history = []
         self.context_initialized = False
+        # Called once (then cleared) before the first terminal output of a query.
+        # Used by the UI to stop the thinking spinner before any text appears.
+        self._pre_output_cb = None
         # Verbose mode: when False (default) MCP tags are stripped from the
         # displayed response so the terminal stays clean.  When True every
         # raw token the model generates is shown as-is.
@@ -281,6 +284,12 @@ class NeoAI:
         except OSError as exc:
             return f"Could not load tone '{name}': {exc}"
 
+    def _fire_pre_output_cb(self) -> None:
+        """Call and clear _pre_output_cb exactly once before any terminal output."""
+        if self._pre_output_cb:
+            self._pre_output_cb()
+            self._pre_output_cb = None
+
     def _refresh_system_prompt(self) -> None:
         """Rebuild and update the system prompt entry in history."""
         if self.history and self.history[0]["role"] == "system":
@@ -407,6 +416,7 @@ class NeoAI:
         In verbose mode the raw text (including MCP tags) is shown.
         In clean mode MCP tags are stripped before display.
         """
+        self._fire_pre_output_cb()
         if clear_thinking:
             print('\r' + ' ' * 30 + '\r', end="", flush=True)
 
@@ -435,6 +445,7 @@ class NeoAI:
                     for text in stream.text_stream:
                         if text:
                             if is_first_chunk:
+                                self._fire_pre_output_cb()
                                 if clear_thinking:
                                     print('\r' + ' ' * 30 + '\r', end="", flush=True)
                                 print("\033[1;34mNeo:\033[0m ", end='', flush=True)
@@ -522,6 +533,7 @@ class NeoAI:
                     content = chunk.choices[0].delta.content or '' if chunk.choices else ''
                     if content:
                         if is_first_chunk:
+                            self._fire_pre_output_cb()
                             if clear_thinking:
                                 print('\r' + ' ' * 30 + '\r', end="", flush=True)
                             print("\033[1;34mNeo:\033[0m ", end='', flush=True)
@@ -776,6 +788,7 @@ class NeoAI:
             Processed response with command outputs integrated
         """
         try:
+            self._fire_pre_output_cb()
             # Process all MCP protocol tags using the MCP singleton
             mcp_results = mcp.process_response(
                 response,
