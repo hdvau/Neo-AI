@@ -45,7 +45,7 @@ class ImprovedTerminalUI:
         """Initialize the terminal UI with Neo AI instance and config."""
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose']
+        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose', 'neo-tone']
 
         # Create history file in user's home directory
         history_file = os.path.expanduser('~/.neo_history.txt')
@@ -65,24 +65,32 @@ class ImprovedTerminalUI:
             with open(history_file, 'w') as f:
                 pass
 
-        # Create a custom completer that expands commands and mode names
-        # Build the full list of neo-use completions once:
-        # plain modes + "ollama:nickname" shortcuts from config
+        # Build completion lists once at session start.
         _neo_use_completions = list(NeoAI.VALID_MODES)
         for _nick in neo_ai.list_nicknames("ollama"):
             _neo_use_completions.append(f"ollama:{_nick}")
 
+        _neo_tone_completions = neo_ai.list_tones() + ["off"]
+
         class CommandStartCompleter(WordCompleter):
             def get_completions(self, document, complete_event):
                 text_before_cursor = document.text_before_cursor
+                from prompt_toolkit.completion import Completion
 
-                # After "neo-use " complete with modes and ollama:nickname shortcuts
+                # After "neo-use " — complete modes and ollama:nickname shortcuts
                 if text_before_cursor.lstrip().startswith('neo-use '):
                     partial = text_before_cursor.split()[-1] if not text_before_cursor.endswith(' ') else ''
-                    from prompt_toolkit.completion import Completion
                     for option in _neo_use_completions:
                         if option.startswith(partial):
                             yield Completion(option, start_position=-len(partial))
+                    return
+
+                # After "neo-tone " — complete available tone names
+                if text_before_cursor.lstrip().startswith('neo-tone '):
+                    partial = text_before_cursor.split()[-1] if not text_before_cursor.endswith(' ') else ''
+                    for tone in _neo_tone_completions:
+                        if tone.startswith(partial):
+                            yield Completion(tone, start_position=-len(partial))
                     return
 
                 # Only complete commands at the start of the line
@@ -114,20 +122,28 @@ class ImprovedTerminalUI:
         modes = ', '.join(NeoAI.VALID_MODES)
         ollama_nicks = self.neo_ai.list_nicknames("ollama")
         nick_examples = "  ".join(f"neo-use ollama:{n}" for n in list(ollama_nicks)[:3])
+        tones = "  ".join(self.neo_ai.list_tones())
+        active_tone = self.neo_ai._active_tone or "none"
         help_text = f"""
 <info>Available commands:</info>
-  • <highlight>help</highlight>                       - Show this help menu
-  • <highlight>history</highlight>                    - Show conversation history
-  • <highlight>clear</highlight>                      - Clear the screen
-  • <highlight>exit</highlight>                       - Exit Neo AI
-  • <highlight>neo-verbose [on|off]</highlight>        - Toggle verbose output (show/hide MCP tags)
-  • <highlight>neo-use &lt;mode&gt; [model]</highlight>  - Switch AI backend at runtime
+  • <highlight>help</highlight>                           - Show this help menu
+  • <highlight>history</highlight>                        - Show conversation history
+  • <highlight>clear</highlight>                          - Clear the screen
+  • <highlight>exit</highlight>                           - Exit Neo AI
+  • <highlight>neo-verbose [on|off]</highlight>            - Toggle verbose output (show/hide MCP tags)
+  • <highlight>neo-use &lt;mode&gt; [model]</highlight>      - Switch AI backend at runtime
       Modes: {modes}
       Examples:
         neo-use claude
         neo-use openai gpt-4o
         neo-use ollama mistral:latest
         {nick_examples}  (Ollama nicknames from config)
+  • <highlight>neo-tone [name|off]</highlight>             - Set response tone (active: {active_tone})
+      Available: {tones}
+      Examples:
+        neo-tone professional
+        neo-tone minimal
+        neo-tone off
 
 <info>Tips:</info>
   • Use <highlight>Tab</highlight> for command and mode completion
@@ -220,6 +236,24 @@ class ImprovedTerminalUI:
                 elif user_input.lower() == 'clear':
                     clear()
                     self.print_banner()
+
+                elif user_input.lower().startswith('neo-tone'):
+                    parts = user_input.split()
+                    name = parts[1].lower() if len(parts) >= 2 else ""
+                    if not name:
+                        # Show current tone
+                        active = self.neo_ai._active_tone or "none"
+                        available = ", ".join(self.neo_ai.list_tones())
+                        print_formatted_text(
+                            HTML(f'<info>Active tone: {active}  |  Available: {available}  |  Usage: neo-tone &lt;name&gt; | off</info>'),
+                            style=NEO_STYLE,
+                        )
+                    else:
+                        msg = self.neo_ai.set_tone(name)
+                        print_formatted_text(
+                            HTML(f'<ansiblue><b>{msg}</b></ansiblue>'),
+                            style=NEO_STYLE,
+                        )
 
                 elif user_input.lower().startswith('neo-verbose'):
                     parts = user_input.split()
