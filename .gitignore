@@ -11,6 +11,8 @@ __pycache__/
 
 # Credentials and config — NEVER commit
 config/config.yaml
+config/runbooks/homeserver-runbook.md
+config/runbooks/macbook.md
 
 # Pytest / coverage
 .pytest_cache/
