@@ -222,6 +222,80 @@ class RunbookRunner:
 
         return runbook, "\n".join(output_parts)
 
+    def run_sectioned(
+        self,
+        path_str: str,
+        tag_filter: Optional[str] = None,
+        section_filter: Optional[str] = None,
+        progress_cb=None,
+    ) -> tuple:
+        """Parse and execute a runbook, returning output grouped by major section.
+
+        Returns:
+            (ParsedRunbook, list[dict]) where each dict has:
+                'title'  — major section title (e.g. "Disk Health")
+                'output' — combined command output for that section
+        """
+        path = self.resolve_path(path_str)
+        content = path.read_text(encoding="utf-8")
+        runbook = self._parser.parse(content)
+
+        sections = runbook.sections
+
+        if tag_filter:
+            tag_upper = tag_filter.upper()
+            sections = [s for s in sections if tag_upper in [t.upper() for t in s.tags]]
+
+        if section_filter:
+            sections = [s for s in sections if s.number.startswith(section_filter)]
+
+        # Group subsections by their parent section title, preserving order.
+        from collections import OrderedDict
+        groups: OrderedDict = OrderedDict()
+        for sec in sections:
+            groups.setdefault(sec.section_title, []).append(sec)
+
+        total = len(sections)
+        counter = 0
+        result = []
+
+        for section_title, subsections in groups.items():
+            output_parts = []
+
+            for sec in subsections:
+                counter += 1
+                header = f"{sec.number}  {section_title} › {sec.title}"
+                if progress_cb:
+                    progress_cb(f"[{counter}/{total}] {header}")
+
+                output_parts.append(f"\n{'━' * 60}")
+                output_parts.append(f"SECTION {header}")
+                output_parts.append('━' * 60)
+
+                for cmd_block in sec.commands:
+                    label_line = next(
+                        (l.strip() for l in cmd_block.splitlines()
+                         if l.strip() and not l.strip().startswith('#')),
+                        cmd_block[:60],
+                    )
+                    if progress_cb:
+                        progress_cb(f"    $ {label_line[:80]}{'…' if len(label_line) > 80 else ''}")
+
+                    output_parts.append(f"\n$ {label_line}")
+                    out = self._exec_block(cmd_block)
+                    output_parts.append(out)
+
+                if sec.analyze:
+                    output_parts.append(f"\n[Analysis criteria for {sec.number}]")
+                    output_parts.append(sec.analyze)
+
+            result.append({
+                'title':  section_title,
+                'output': "\n".join(output_parts),
+            })
+
+        return runbook, result
+
     def build_ai_prompt(self, runbook: ParsedRunbook, output: str) -> str:
         """Build the full prompt to send to the AI for analysis."""
         parts = [

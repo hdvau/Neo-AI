@@ -845,6 +845,45 @@ class NeoAI:
 
     # ── Runbook support ───────────────────────────────────────────────────────
 
+    def _query_oneshot(self, prompt: str) -> str:
+        """Query the model with ONLY the system prompt + *prompt* — no history.
+
+        Used for runbook section analysis so that each section is evaluated
+        independently without accumulating context from previous sections.
+        The result is NOT added to self.history.
+        """
+        system_msg = self.history[0] if self.history and self.history[0]["role"] == "system" else None
+        messages = []
+        if system_msg:
+            messages.append(system_msg)
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            if self.mode == "claude":
+                system = system_msg["content"] if system_msg else ""
+                user_msgs = [{"role": "user", "content": prompt}]
+                full_response = ""
+                with self._anthropic_client.messages.stream(
+                    model=self.model,
+                    max_tokens=self._claude_max_tokens,
+                    system=system,
+                    messages=user_msgs,
+                ) as stream:
+                    for text in stream.text_stream:
+                        full_response += text
+                return full_response.strip()
+            else:
+                completion = openai.ChatCompletion.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    stream=False,
+                )
+                return completion["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logging.error("_query_oneshot failed: %s", e)
+            return ""
+
     def run_runbook(
         self,
         path_str: str,
@@ -852,19 +891,23 @@ class NeoAI:
         section_filter: str = "",
         progress_cb=None,
     ) -> str:
-        """Parse and execute a runbook, then ask the AI to analyse the output.
+        """Parse and execute a runbook, then analyse output section by section.
 
-        All commands in the runbook are executed automatically — no approval
-        prompts are shown (runbooks are explicitly trusted by the user).
+        Each major section (Disk Health, Performance, Docker, …) is analysed
+        independently right after its commands finish — keeping each AI query
+        small enough for local models. A final summary is produced from all
+        section analyses.
+
+        All commands execute without approval prompts (runbooks are trusted).
 
         Args:
             path_str:       Path or stem name of the runbook file.
-            tag_filter:     Optional tag to filter sections (e.g. "DAILY").
-            section_filter: Optional section number prefix filter (e.g. "3").
+            tag_filter:     Optional tag filter (e.g. "DAILY").
+            section_filter: Optional section number prefix (e.g. "3").
             progress_cb:    Optional callable(message: str) for live progress.
 
         Returns:
-            The AI's analysis as a string.
+            The final summary as a string.
         """
         from src.runbook_runner import RunbookRunner
 
@@ -877,7 +920,7 @@ class NeoAI:
                 print(f"\033[90m{msg}\033[0m", flush=True)
 
         try:
-            runbook, collected_output = runner.run(
+            runbook, section_groups = runner.run_sectioned(
                 path_str,
                 tag_filter=tag_filter or None,
                 section_filter=section_filter or None,
@@ -886,26 +929,80 @@ class NeoAI:
         except FileNotFoundError as exc:
             return str(exc)
 
-        ai_prompt = runner.build_ai_prompt(runbook, collected_output)
+        if not section_groups:
+            print("\033[1;34mNeo:\033[0m No sections matched the given filters.")
+            return ""
 
-        print()
-        print("\033[1;34mNeo:\033[0m Analysing runbook output…", flush=True)
-        print()
+        # ── Per-section analysis ──────────────────────────────────────────────
+        section_analyses = []
 
-        self.history.append({"role": "user", "content": ai_prompt})
+        for group in section_groups:
+            title  = group['title']
+            output = group['output']
+
+            print(f"\n\033[90mAnalysing: {title}…\033[0m", flush=True)
+
+            section_prompt = (
+                f"You are analysing the '{title}' section of the "
+                f"'{runbook.title}' health-check runbook.\n"
+                f"Identify anomalies, warnings, or critical issues in the "
+                f"command output below. Be concise — a short paragraph or "
+                f"bullet list. Mark problems as WARNING or CRITICAL.\n\n"
+                f"{output}"
+            )
+
+            analysis = self._query_oneshot(section_prompt)
+
+            if analysis:
+                section_analyses.append(f"## {title}\n{analysis}")
+                print(f"\033[1;34mNeo [{title}]:\033[0m {analysis}\n")
+            else:
+                section_analyses.append(f"## {title}\n(no analysis returned)")
+
+        # ── Final summary ─────────────────────────────────────────────────────
+        print("\033[90mCreating final summary…\033[0m\n", flush=True)
+
+        combined_analyses = "\n\n".join(section_analyses)
+
+        if runbook.output_format:
+            summary_prompt = (
+                f"You have analysed each section of the '{runbook.title}' runbook.\n"
+                f"Here are the per-section findings:\n\n"
+                f"{combined_analyses}\n\n"
+            )
+            if runbook.agent_instructions:
+                summary_prompt = (
+                    f"Instructions: {runbook.agent_instructions}\n\n"
+                    + summary_prompt
+                )
+            summary_prompt += (
+                f"Now produce the final report using exactly this structure:\n\n"
+                f"{runbook.output_format}"
+            )
+        else:
+            summary_prompt = (
+                f"You have analysed each section of the '{runbook.title}' runbook.\n"
+                f"Per-section findings:\n\n{combined_analyses}\n\n"
+                f"Produce a concise executive summary:\n"
+                f"- Overall status (OK / WARNING / CRITICAL)\n"
+                f"- Top issues requiring attention\n"
+                f"- Recommended actions"
+            )
+
+        # Summary goes into conversation history so the user can ask follow-up
+        # questions about the runbook results.
+        self.history.append({"role": "user", "content": summary_prompt})
         self._trim_history()
 
-        # Use the raw query path so the AI's analysis cannot accidentally
-        # trigger MCP command execution (e.g. if output contains tag-like text).
         if self.mode == "claude":
-            analysis = self._query_claude_raw(ai_prompt)
+            summary = self._query_claude_raw(summary_prompt)
         else:
-            analysis = self._query_raw(ai_prompt)
+            summary = self._query_raw(summary_prompt)
 
-        if analysis:
-            self.history.append({"role": "assistant", "content": analysis})
-            print("\033[1;34mNeo:\033[0m", analysis)
+        if summary:
+            self.history.append({"role": "assistant", "content": summary})
+            print("\033[1;34mNeo:\033[0m", summary)
         else:
-            print("\033[1;34mNeo:\033[0m (no analysis returned)")
+            print("\033[1;34mNeo:\033[0m (no summary returned)")
 
-        return analysis or ""
+        return summary or ""
