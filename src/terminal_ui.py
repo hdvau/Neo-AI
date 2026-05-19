@@ -157,13 +157,16 @@ class ImprovedTerminalUI:
         neo-tone professional
         neo-tone minimal
         neo-tone off
-  • <highlight>neo-run &lt;runbook&gt; [--tag TAG] [--section N]</highlight>
+  • <highlight>neo-run &lt;runbook&gt; [--tag TAG] [--section N] [--raw]</highlight>
       Run a health-check runbook and get AI analysis of the output.
+      Raw command output is always saved to /tmp/neo_&lt;uid&gt;/runbook_*.log
+      --raw also prints the raw output to the terminal for verification.
       Available runbooks: {runbooks}
       Examples:
         neo-run linux-server-health
         neo-run linux-server-health --tag DAILY
         neo-run linux-server-health --section 3
+        neo-run linux-server-health --raw
 
 <info>Tips:</info>
   • Use <highlight>Tab</highlight> for command and mode completion
@@ -323,6 +326,7 @@ class ImprovedTerminalUI:
                         rb_path = parts[1]
                         tag_filter = ""
                         section_filter = ""
+                        show_raw = False
                         # Parse optional flags
                         remaining = parts[2:]
                         i = 0
@@ -333,6 +337,9 @@ class ImprovedTerminalUI:
                             elif remaining[i] in ('--section', '-s') and i + 1 < len(remaining):
                                 section_filter = remaining[i + 1]
                                 i += 2
+                            elif remaining[i] == '--raw':
+                                show_raw = True
+                                i += 1
                             else:
                                 i += 1
 
@@ -347,6 +354,7 @@ class ImprovedTerminalUI:
                             rb_path,
                             tag_filter=tag_filter,
                             section_filter=section_filter,
+                            show_raw=show_raw,
                             progress_cb=_progress,
                         )
 

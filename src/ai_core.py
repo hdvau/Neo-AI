@@ -897,6 +897,7 @@ class NeoAI:
         path_str: str,
         tag_filter: str = "",
         section_filter: str = "",
+        show_raw: bool = False,
         progress_cb=None,
     ) -> str:
         """Parse and execute a runbook, then analyse output section by section.
@@ -906,17 +907,25 @@ class NeoAI:
         small enough for local models. A final summary is produced from all
         section analyses.
 
+        Raw command output is always saved to a log file so findings can be
+        verified against actual data. Pass show_raw=True to also print it to
+        the terminal before each section's AI analysis.
+
         All commands execute without approval prompts (runbooks are trusted).
 
         Args:
             path_str:       Path or stem name of the runbook file.
             tag_filter:     Optional tag filter (e.g. "DAILY").
             section_filter: Optional section number prefix (e.g. "3").
+            show_raw:       Print raw command output to terminal before analysis.
             progress_cb:    Optional callable(message: str) for live progress.
 
         Returns:
             The final summary as a string.
         """
+        import os as _os
+        from pathlib import Path as _Path
+        from datetime import datetime as _dt
         from src.runbook_runner import RunbookRunner
 
         runner = RunbookRunner(
@@ -927,15 +936,24 @@ class NeoAI:
             def progress_cb(msg):
                 print(f"\033[90m{msg}\033[0m", flush=True)
 
+        # Always write raw output to a log file for verification.
+        uid = _os.getuid() if hasattr(_os, 'getuid') else 0
+        ts  = _dt.now().strftime('%Y%m%d_%H%M%S')
+        rb_stem = _Path(path_str).stem
+        log_path = _Path(f"/tmp/neo_{uid}") / f"runbook_{rb_stem}_{ts}.log"
+
         try:
             runbook, section_groups = runner.run_sectioned(
                 path_str,
                 tag_filter=tag_filter or None,
                 section_filter=section_filter or None,
                 progress_cb=progress_cb,
+                log_path=log_path,
             )
         except FileNotFoundError as exc:
             return str(exc)
+
+        print(f"\033[90mRaw output saved to: {log_path}\033[0m\n", flush=True)
 
         if not section_groups:
             print("\033[1;34mNeo:\033[0m No sections matched the given filters.")
@@ -948,15 +966,29 @@ class NeoAI:
             title  = group['title']
             output = group['output']
 
+            if show_raw:
+                print(f"\033[90m{'─' * 60}\033[0m")
+                print(f"\033[90mRAW OUTPUT — {title}\033[0m")
+                print(f"\033[90m{'─' * 60}\033[0m")
+                print(output)
+                print()
+
             print(f"\n\033[90mAnalysing: {title}…\033[0m", flush=True)
 
             section_prompt = (
-                f"You are analysing the '{title}' section of the "
-                f"'{runbook.title}' health-check runbook.\n"
-                f"Identify anomalies, warnings, or critical issues in the "
-                f"command output below. Be concise — a short paragraph or "
-                f"bullet list. Mark problems as WARNING or CRITICAL.\n\n"
-                f"{output}"
+                f"Analyse the '{title}' section of the '{runbook.title}' "
+                f"health-check runbook.\n\n"
+                f"RULES — follow strictly:\n"
+                f"- Base your findings ONLY on the exact text in the command "
+                f"output below. Do NOT infer, guess, or add information not "
+                f"present in the output.\n"
+                f"- When you flag an issue, quote the EXACT value from the "
+                f"output (e.g. '71% used', 'await 10.54 ms').\n"
+                f"- If the output is empty or shows '(no output)', report "
+                f"UNKNOWN — do not invent findings.\n"
+                f"- Use WARNING / CRITICAL labels only when the output clearly "
+                f"exceeds the stated thresholds.\n\n"
+                f"Command output:\n{output}"
             )
 
             analysis = self._query_oneshot(section_prompt)
