@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=74.1.2", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "neo-ai"
+version = "1.2.0"
+description = "Neo — AI-powered terminal assistant supporting Ollama, LM Studio, OpenAI and Claude"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "openai==0.28",
+    "pyyaml>=6.0.1",
+    "pynput>=1.7.7",
+    "httpx>=0.28.1",
+    "anthropic>=0.40.0",
+    "prompt_toolkit>=3.0.43",
+    "pygments>=2.17.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+# Creates a `neo` entry-point inside the virtual environment.
+# install.sh symlinks this into the system PATH.
+neo = "main:main"
+
+[tool.setuptools]
+# Package main.py (root-level entry point) alongside the src/ tree.
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
