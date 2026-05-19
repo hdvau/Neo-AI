@@ -5,7 +5,7 @@ Tests for NeoAI history trimming — prevents unbounded memory growth.
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -26,17 +26,16 @@ class TestHistoryTrimming(unittest.TestCase):
             "command_approval": {"require_approval": True, "auto_approve_all": False},
             "stream": False,
         }
-        with patch("openai.api_base", create=True), \
-             patch("openai.api_key", create=True):
-            ai = NeoAI.__new__(NeoAI)
-            ai.mode = config["mode"]
-            ai.require_approval = True
-            ai.auto_approve_all = False
-            ai.is_streaming_mode = False
-            ai.config = config
-            ai.history = []
-            ai.context_initialized = True
-            ai._max_history_messages = max_messages
+        ai = NeoAI.__new__(NeoAI)
+        ai.mode = config["mode"]
+        ai.require_approval = True
+        ai.auto_approve_all = False
+        ai.is_streaming_mode = False
+        ai.config = config
+        ai.history = []
+        ai.context_initialized = True
+        ai._max_history_messages = max_messages
+        ai._openai_client = MagicMock()
         return ai
 
     def test_history_within_limit_is_unchanged(self):

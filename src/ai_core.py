@@ -58,12 +58,15 @@ class NeoAI:
             self.model = claude_cfg.get('model', 'claude-opus-4-5')
             self._claude_max_tokens = claude_cfg.get('max_tokens', 4096)
             self._anthropic_client = _anthropic_sdk.Anthropic(api_key=api_key)
+            self._openai_client = None
 
         elif self.mode == 'openai':
             openai_cfg = config.get('openai_config', {})
-            # Default to the real OpenAI endpoint; override for Azure or compatible APIs.
-            openai.api_base = openai_cfg.get('api_url', 'https://api.openai.com/v1')
-            openai.api_key = openai_cfg.get('api_key') or os.environ.get('OPENAI_API_KEY', '')
+            api_key = openai_cfg.get('api_key') or os.environ.get('OPENAI_API_KEY', '')
+            self._openai_client = openai.OpenAI(
+                base_url=openai_cfg.get('api_url', 'https://api.openai.com/v1'),
+                api_key=api_key,
+            )
             self.model = openai_cfg.get('model', 'gpt-4o')
             # Reasoning models (o1, o3, gpt-5.x …) only accept temperature=1.
             # Use 1 as the safe default; users can lower it for non-reasoning models.
@@ -71,9 +74,10 @@ class NeoAI:
 
         elif self.mode == 'ollama':
             ollama_cfg = config.get('ollama_config', {})
-            openai.api_base = ollama_cfg.get('api_url', 'http://localhost:11434/v1')
-            # Ollama requires no real key but the openai library needs a non-empty value.
-            openai.api_key = ollama_cfg.get('api_key', 'ollama')
+            self._openai_client = openai.OpenAI(
+                base_url=ollama_cfg.get('api_url', 'http://localhost:11434/v1'),
+                api_key=ollama_cfg.get('api_key', 'ollama'),
+            )
             self.model = ollama_cfg['model']
             self.temperature = ollama_cfg.get('temperature', 0.7)
 
@@ -81,8 +85,10 @@ class NeoAI:
             # lm_studio mode — support both nested (lm_studio_config.*)
             # and the legacy flat-key format (api_url / api_key / model).
             lm_cfg = config.get('lm_studio_config', {})
-            openai.api_base = lm_cfg.get('api_url') or config.get('api_url', '')
-            openai.api_key = lm_cfg.get('api_key') or config.get('api_key', '')
+            self._openai_client = openai.OpenAI(
+                base_url=lm_cfg.get('api_url') or config.get('api_url', ''),
+                api_key=lm_cfg.get('api_key') or config.get('api_key', 'lm-studio'),
+            )
             self.model = lm_cfg.get('model') or config.get('model', '')
             self.temperature = lm_cfg.get('temperature', 0.7)
 
@@ -501,7 +507,7 @@ class NeoAI:
         messages.append({"role": "user", "content": instruction})
 
         try:
-            completion = openai.ChatCompletion.create(
+            completion = self._openai_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -513,23 +519,20 @@ class NeoAI:
             if self.verbose:
                 is_first_chunk = True
                 for chunk in completion:
-                    if 'choices' in chunk and len(chunk['choices']) > 0:
-                        content = chunk['choices'][0]['delta'].get('content', '')
-                        if content:
-                            if is_first_chunk:
-                                if clear_thinking:
-                                    print('\r' + ' ' * 30 + '\r', end="", flush=True)
-                                print("\033[1;34mNeo:\033[0m ", end='', flush=True)
-                                is_first_chunk = False
-                            print(content, end='', flush=True)
-                            full_response += content
+                    content = chunk.choices[0].delta.content or '' if chunk.choices else ''
+                    if content:
+                        if is_first_chunk:
+                            if clear_thinking:
+                                print('\r' + ' ' * 30 + '\r', end="", flush=True)
+                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                            is_first_chunk = False
+                        print(content, end='', flush=True)
+                        full_response += content
                 print()
             else:
                 for chunk in completion:
-                    if 'choices' in chunk and len(chunk['choices']) > 0:
-                        content = chunk['choices'][0]['delta'].get('content', '')
-                        if content:
-                            full_response += content
+                    content = chunk.choices[0].delta.content or '' if chunk.choices else ''
+                    full_response += content
                 self._print_streamed(full_response, clear_thinking=clear_thinking)
 
             return self._process_response(full_response)
@@ -549,7 +552,7 @@ class NeoAI:
         messages.append({"role": "user", "content": prompt})
 
         try:
-            completion = openai.ChatCompletion.create(
+            completion = self._openai_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=self.temperature,
@@ -561,21 +564,18 @@ class NeoAI:
             if self.verbose:
                 is_first_chunk = True
                 for chunk in completion:
-                    if 'choices' in chunk and len(chunk['choices']) > 0:
-                        content = chunk['choices'][0]['delta'].get('content', '')
-                        if content:
-                            if is_first_chunk:
-                                print("\033[1;34mNeo:\033[0m ", end='', flush=True)
-                                is_first_chunk = False
-                            print(content, end='', flush=True)
-                            full_response += content
+                    content = chunk.choices[0].delta.content or '' if chunk.choices else ''
+                    if content:
+                        if is_first_chunk:
+                            print("\033[1;34mNeo:\033[0m ", end='', flush=True)
+                            is_first_chunk = False
+                        print(content, end='', flush=True)
+                        full_response += content
                 print()
             else:
                 for chunk in completion:
-                    if 'choices' in chunk and len(chunk['choices']) > 0:
-                        content = chunk['choices'][0]['delta'].get('content', '')
-                        if content:
-                            full_response += content
+                    content = chunk.choices[0].delta.content or '' if chunk.choices else ''
+                    full_response += content
                 self._print_streamed(full_response)
 
             return full_response.strip()
@@ -696,15 +696,19 @@ class NeoAI:
                         "Set openai_config.api_key in config.yaml "
                         "or export OPENAI_API_KEY."
                     )
-                openai.api_base = openai_cfg.get('api_url', 'https://api.openai.com/v1')
-                openai.api_key = api_key
+                self._openai_client = openai.OpenAI(
+                    base_url=openai_cfg.get('api_url', 'https://api.openai.com/v1'),
+                    api_key=api_key,
+                )
                 self.model = model or openai_cfg.get('model', 'gpt-4o')
                 self.temperature = openai_cfg.get('temperature', 1)
 
             elif mode == 'ollama':
                 ollama_cfg = self.config.get('ollama_config', {})
-                openai.api_base = ollama_cfg.get('api_url', 'http://localhost:11434/v1')
-                openai.api_key = 'ollama'
+                self._openai_client = openai.OpenAI(
+                    base_url=ollama_cfg.get('api_url', 'http://localhost:11434/v1'),
+                    api_key=ollama_cfg.get('api_key', 'ollama'),
+                )
                 self.model = model or ollama_cfg.get('model', '')
                 self.temperature = ollama_cfg.get('temperature', 0.7)
                 if not self.model:
@@ -715,11 +719,9 @@ class NeoAI:
 
             else:  # lm_studio
                 lm_cfg = self.config.get('lm_studio_config', {})
-                openai.api_base = (
-                    lm_cfg.get('api_url') or self.config.get('api_url', '')
-                )
-                openai.api_key = (
-                    lm_cfg.get('api_key') or self.config.get('api_key', '')
+                self._openai_client = openai.OpenAI(
+                    base_url=lm_cfg.get('api_url') or self.config.get('api_url', ''),
+                    api_key=lm_cfg.get('api_key') or self.config.get('api_key', 'lm-studio'),
                 )
                 self.model = (
                     model
@@ -894,13 +896,13 @@ class NeoAI:
                     {"role": "system", "content": analysis_system},
                     {"role": "user", "content": prompt},
                 ]
-                completion = openai.ChatCompletion.create(
+                completion = self._openai_client.chat.completions.create(
                     model=self.model,
                     messages=messages,
                     temperature=self.temperature,
                     stream=False,
                 )
-                return completion["choices"][0]["message"]["content"].strip()
+                return completion.choices[0].message.content.strip()
         except Exception as e:
             logging.error("_query_oneshot failed: %s", e)
             return ""

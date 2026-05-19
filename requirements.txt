@@ -1,9 +1,5 @@
-# Neo-AI Python dependencies
-# openai==0.28 is the last v0.x release and is no longer maintained.
-# The codebase uses the legacy openai.ChatCompletion.create() API which was
-# removed in v1.0. Migration to openai>=1.0 is a separate tracked task.
 setuptools>=74.1.2
-openai==0.28
+openai>=1.0
 pyyaml>=6.0.1
 pynput>=1.7.7
 httpx>=0.28.1
