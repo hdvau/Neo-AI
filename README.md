@@ -12,6 +12,8 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 - **Command approval** — every command requires explicit confirmation before execution
 - **Multiple AI backends** — Ollama, LM Studio, OpenAI API, Anthropic Claude API
 - **Hot-swap backends** — switch model or provider mid-session with `neo-use`
+- **Ollama model nicknames** — define short aliases (`gemma`, `qwencode`) in config and switch with `neo-use ollama:gemma`
+- **Model-specific context plugins** — drop a `.md` file into `config/model_contexts/` to inject model-aware instructions automatically
 - **Clean output by default** — MCP protocol tags are hidden; toggle verbose mode with `neo-verbose`
 - **Conversation history** with configurable length and automatic trimming
 - **Persistent memory** loaded as context at startup
@@ -32,30 +34,43 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 
 ## Installation
 
-**Requirements:** Python 3.8+, pip, one of the backends above.
+**Requirements:** Python 3.10+, one of the backends above.
 
 ```bash
 git clone https://github.com/hdvau/Neo-AI.git
 cd Neo-AI
-./install.sh
+bash install.sh
 ```
 
-Add the alias to your shell profile:
+The installer:
+1. Checks Python 3.10+
+2. Creates a `.venv` virtual environment inside the project directory
+3. Installs all dependencies via `pip`
+4. Copies `config/config.yaml.example` → `config/config.yaml` on first run
+5. Writes a `neo` launcher to `/usr/local/bin` (or `~/.local/bin` as fallback)
+
+After that, `neo` is available in any shell, from any directory — no manual alias or `source` step needed.
+
+**Update an existing installation:**
 
 ```bash
-echo "alias neo='source $(pwd)/venv/bin/activate && python3 $(pwd)/main.py'" >> ~/.zshrc
-# or ~/.bashrc for bash
-source ~/.zshrc
+git pull
+bash install.sh   # safe to re-run — updates deps in place
+```
+
+**Uninstall:**
+
+```bash
+bash uninstall.sh
 ```
 
 ---
 
 ## Configuration
 
-Copy the example and fill in your values:
+Edit `config/config.yaml` (created automatically on first install):
 
 ```bash
-cp config/config.yaml.example config/config.yaml
 nano config/config.yaml
 ```
 
@@ -65,7 +80,12 @@ nano config/config.yaml
 mode: "ollama"
 ollama_config:
   api_url: "http://localhost:11434/v1"   # supports remote hosts
-  model: "mistral:latest"
+  model: "llama3.2"                      # default for: neo-use ollama
+
+  models:                                # optional nicknames (see below)
+    gemma:    "gemma4:latest"
+    qwencode: "qwen3-coder"
+    mistral:  "mistral:latest"
 ```
 
 ### LM Studio (local, no key needed)
@@ -113,18 +133,16 @@ command_timeout: 120         # seconds per command
 
 ## Usage
 
-Start Neo:
-
 ```bash
-neo
-# or with the classic interface:
-neo --classic
+neo              # start with the improved UI (default)
+neo --classic    # start with the classic readline interface
+neo --debug      # enable debug logging
 ```
 
 The prompt shows your active backend and model:
 
 ```
-dha@neo [ollama:mistral:latest] >
+dha@neo [ollama:gemma4:latest] >
 ```
 
 ### Built-in commands
@@ -136,6 +154,7 @@ dha@neo [ollama:mistral:latest] >
 | `clear` | Clear the screen |
 | `exit` | Quit Neo |
 | `neo-use <mode> [model]` | Switch AI backend at runtime |
+| `neo-use ollama:<nickname>` | Switch to an Ollama model by nickname |
 | `neo-verbose [on\|off]` | Toggle verbose output |
 
 ### Switching backends mid-session
@@ -143,13 +162,37 @@ dha@neo [ollama:mistral:latest] >
 Switch without losing your conversation history:
 
 ```
-neo-use claude
+neo-use ollama
+neo-use ollama mistral:latest     # direct model name
+neo-use ollama:gemma              # nickname (resolves to gemma4:latest)
+neo-use ollama:qwencode           # nickname (resolves to qwen3-coder)
 neo-use openai gpt-4o
-neo-use ollama mistral:latest
+neo-use claude
 neo-use lm_studio
 ```
 
-Tab completion works after `neo-use ` — press Tab to see available modes.
+Tab completion works after `neo-use ` — all modes and configured Ollama nicknames are suggested automatically.
+
+### Ollama model nicknames
+
+Define short aliases in `config.yaml` so you never have to type full model identifiers:
+
+```yaml
+ollama_config:
+  model: "llama3.2"         # default
+  models:
+    gemma:    "gemma4:latest"
+    qwencode: "qwen3-coder"
+    mistral:  "mistral:latest"
+```
+
+Then switch with:
+```
+neo-use ollama:gemma
+neo-use ollama:qwencode
+```
+
+Lookups are case-insensitive. Unknown nicknames print the list of available ones.
 
 ### Verbose mode
 
@@ -160,6 +203,37 @@ neo-verbose          # toggle
 neo-verbose on       # show raw model output including MCP tags
 neo-verbose off      # back to clean output (default)
 ```
+
+---
+
+## Model Context Plugins
+
+Neo automatically injects model-specific instructions into the system prompt. Plugins live in `config/model_contexts/` as plain `.md` files with optional YAML front-matter:
+
+```markdown
+---
+mode: openai
+models: [o1, o3, o4, gpt-5]
+priority: 2
+---
+
+Output each MCP tag exactly once. Do not narrate your reasoning steps...
+```
+
+**Resolution:** `default.md` always loads first, then mode-specific files, then model-specific files — each layer appends to the previous so overrides are additive.
+
+**To add your own:** drop a `.md` file into `config/model_contexts/` — no code changes needed. Neo picks it up on next start (or after `neo-use`).
+
+Bundled plugins:
+
+| File | Applies to |
+|---|---|
+| `default.md` | All models |
+| `claude.md` | Claude mode |
+| `openai.md` | All OpenAI models |
+| `openai_reasoning.md` | o1 / o3 / o4 / gpt-5 series |
+| `ollama.md` | All Ollama models |
+| `lm_studio.md` | All LM Studio models |
 
 ---
 
@@ -180,22 +254,23 @@ Neo uses an internal Machine Communication Protocol to interact with the system.
 ## Example Session
 
 ```
-dha@neo [claude:claude-opus-4-5] > find the document "report.pdf" and copy it to Downloads
+dha@neo [ollama:gemma4:latest] > find the document "report.pdf" and copy it to Downloads
 
-Neo:  Searching your home folder for report.pdf.
+Neo: Searching your home folder for report.pdf.
 
-  ↳ Execute this command? [Enter/n]: ✓
-──────────────────────────────────────────────────
+Neo > find "$HOME" -name "report.pdf" -maxdepth 5 2>/dev/null
+  ↳ Execute this command? [Enter/n]:
 /Users/dha/Documents/report.pdf
-──────────────────────────────────────────────────
+Neo: Done.
 
-Neo:  Found it at /Users/dha/Documents/report.pdf. Copying it to Downloads now.
+Neo > cp "/Users/dha/Documents/report.pdf" "$HOME/Downloads/"
+  ↳ Execute this command? [Enter/n]:
+Neo: Done.
 
-  ↳ Execute this command? [Enter/n]: ✓
-──────────────────────────────────────────────────
-──────────────────────────────────────────────────
+dha@neo [ollama:gemma4:latest] > neo-use ollama:qwencode
+Switched to ollama — model: qwen3-coder
 
-Neo:  Done — report.pdf is now in your Downloads folder.
+dha@neo [ollama:qwen3-coder] >
 ```
 
 ---
@@ -215,11 +290,23 @@ Neo:  Done — report.pdf is now in your Downloads folder.
 ```
 Neo-AI/
 ├── main.py                          # Entry point, config loading, validation
+├── pyproject.toml                   # Package definition and entry point (`neo`)
+├── install.sh                       # Installer — sets up .venv and `neo` command
+├── uninstall.sh                     # Removes `neo` launcher and .venv
+├── requirements.txt                 # Pinned dependencies (reference)
 ├── config/
-│   ├── config.yaml.example          # Template — copy to config.yaml
-│   └── PrePromt.md                  # System prompt loaded at startup
+│   ├── config.yaml.example          # Template — copied to config.yaml on install
+│   ├── PrePromt.md                  # Base system prompt loaded at startup
+│   └── model_contexts/              # Model-specific context plugins (drop-in .md files)
+│       ├── default.md
+│       ├── claude.md
+│       ├── openai.md
+│       ├── openai_reasoning.md
+│       ├── ollama.md
+│       └── lm_studio.md
 ├── src/
 │   ├── ai_core.py                   # NeoAI class, backend dispatch, history
+│   ├── model_context_loader.py      # Plugin loader for model_contexts/
 │   ├── approval_handler.py          # Command approval prompts
 │   ├── command_executor.py          # Inline command execution (streaming)
 │   ├── terminal_interface.py        # Classic readline UI
