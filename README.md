@@ -7,6 +7,7 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 ## Features
 
 - **Natural language → shell commands** with full real-time streaming output
+- **One-shot mode** — use `neo: <prompt>` directly from any directory without entering an interactive session
 - **SSH and headless compatible** — runs entirely in the current terminal, no second window needed
 - **OS-aware context** — detects macOS vs Linux at startup and always uses the correct commands (`ifconfig` not `ip addr`, `brew` not `apt`, etc.)
 - **Command approval** — every command requires explicit confirmation before execution
@@ -50,8 +51,9 @@ The installer:
 3. Installs all dependencies via `pip`
 4. Copies `config/config.yaml.example` → `config/config.yaml` on first run
 5. Writes a `neo` launcher to `/usr/local/bin` (or `~/.local/bin` as fallback)
+6. Also writes a `neo:` launcher for one-shot usage (see [One-shot mode](#one-shot-mode))
 
-After that, `neo` is available in any shell, from any directory — no manual alias or `source` step needed.
+After that, `neo` and `neo:` are available in any shell, from any directory — no manual alias or `source` step needed.
 
 **Update an existing installation:**
 
@@ -136,10 +138,29 @@ command_timeout: 120         # seconds per command
 ## Usage
 
 ```bash
-neo              # start with the improved UI (default)
+neo              # start interactive session (default)
 neo --classic    # start with the classic readline interface
 neo --debug      # enable debug logging
 ```
+
+### One-shot mode
+
+Ask a single question directly from the shell — without entering an interactive session. Neo processes the prompt, prints the response (with command approval if needed), and exits:
+
+```bash
+neo: zeige mir den Inhalt von diesem Verzeichnis
+neo: how much disk space is left?
+neo: which processes are listening on port 8080?
+neo: create a summary of all .log files in /var/log
+```
+
+`neo:` is an alias installed alongside `neo`. It is identical to passing arguments directly:
+
+```bash
+neo how much free memory is available?   # works too
+```
+
+The animated thinking spinner (`⠋ ⠙ ⠹ ⠸ …`) appears while waiting for the model and stops automatically before any output is printed.
 
 The prompt shows your active backend and model:
 
@@ -329,6 +350,20 @@ Neo uses an internal Machine Communication Protocol to interact with the system.
 ---
 
 ## Example Session
+
+**One-shot from any directory:**
+
+```bash
+dha@bermudaserver:~/gitrepos/server-ops$ neo: zeige mir den Inhalt von diesem Verzeichnis
+⠴ Thinking.
+Neo: Ich schaue mir das aktuelle Verzeichnis an.
+
+Neo > ls -la
+  ↳ Execute this command? [Enter/n]:
+...
+```
+
+**Interactive session:**
 
 ```
 dha@neo [ollama:gemma4:latest] > find the document "report.pdf" and copy it to Downloads
