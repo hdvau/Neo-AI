@@ -86,7 +86,7 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Neo AI - Your Linux Terminal Assistant')
     parser.add_argument('--classic', action='store_true', help='Use classic terminal interface')
-    parser.add_argument('--version', action='version', version='Neo AI v1.1.0')
+    parser.add_argument('--version', action='version', version='Neo AI v1.2.0')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('prompt', nargs='*', help='One-shot prompt — run once and exit')
     return parser.parse_args()
