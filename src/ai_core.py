@@ -319,7 +319,6 @@ class NeoAI:
         try:
             raw = self._config_path.read_text(encoding="utf-8")
             import re as _re
-            # Replace existing `tone:` line (anywhere in file).
             if _re.search(r'^tone\s*:', raw, flags=_re.MULTILINE):
                 raw = _re.sub(
                     r'^(tone\s*:).*$',
@@ -328,11 +327,61 @@ class NeoAI:
                     flags=_re.MULTILINE,
                 )
             else:
-                # Append the key before a trailing newline / at end of file.
                 raw = raw.rstrip('\n') + f'\ntone: "{name}"\n'
             self._config_path.write_text(raw, encoding="utf-8")
         except OSError as exc:
             logging.warning("Could not persist tone to config.yaml: %s", exc)
+
+    def _persist_mode(self, mode: str, model: str) -> None:
+        """Write the active mode and model back to config.yaml.
+
+        Updates the top-level 'mode:' key and the model entry inside the
+        relevant backend config block (ollama_config.model, etc.) so that
+        the chosen backend survives restarts.
+        """
+        if not self._config_path.exists():
+            return
+        try:
+            raw = self._config_path.read_text(encoding="utf-8")
+            import re as _re
+
+            # ── top-level mode: ──────────────────────────────────────────────
+            if _re.search(r'^mode\s*:', raw, flags=_re.MULTILINE):
+                raw = _re.sub(
+                    r'^(mode\s*:).*$',
+                    f'mode: "{mode}"',
+                    raw,
+                    flags=_re.MULTILINE,
+                )
+            else:
+                raw = raw.rstrip('\n') + f'\nmode: "{mode}"\n'
+
+            # ── backend-specific model key ───────────────────────────────────
+            # Each backend lives under a YAML block like:
+            #   ollama_config:
+            #     model: "qwen3-coder"
+            # We update only the first `model:` line inside that block.
+            cfg_block = {
+                'ollama':    'ollama_config',
+                'openai':    'openai_config',
+                'claude':    'claude_config',
+                'lm_studio': 'lm_studio_config',
+            }.get(mode)
+
+            if cfg_block and model:
+                # Match the block header, then find the first `model:` inside.
+                pattern = _re.compile(
+                    rf'(^{_re.escape(cfg_block)}\s*:.*?)(^\s+model\s*:)[^\n]*',
+                    _re.MULTILINE | _re.DOTALL,
+                )
+                def _replace_model(m):
+                    indent = _re.match(r'(\s+)', m.group(2)).group(1)
+                    return m.group(1) + f'{indent}model: "{model}"'
+                raw = pattern.sub(_replace_model, raw, count=1)
+
+            self._config_path.write_text(raw, encoding="utf-8")
+        except OSError as exc:
+            logging.warning("Could not persist mode to config.yaml: %s", exc)
 
     def _fire_pre_output_cb(self) -> None:
         """Call and clear _pre_output_cb exactly once before any terminal output."""
@@ -867,6 +916,7 @@ class NeoAI:
             self.mode = mode
             logging.info("Switched to mode=%s model=%s", self.mode, self.model)
             self._refresh_system_prompt()
+            self._persist_mode(mode, self.model)
             return f"Switched to {mode} — model: {self.model}"
 
         except Exception as e:

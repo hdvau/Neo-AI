@@ -11,8 +11,8 @@ __pycache__/
 
 # Credentials and config — NEVER commit
 config/config.yaml
+# homeserver-runbook.md contains personal server details (real hostnames, disks)
 config/runbooks/homeserver-runbook.md
-config/runbooks/macbook.md
 
 # Pytest / coverage
 .pytest_cache/
