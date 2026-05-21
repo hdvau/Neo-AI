@@ -60,7 +60,7 @@ class ImprovedTerminalUI:
         """Initialize the terminal UI with Neo AI instance and config."""
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose', 'neo-tone', 'neo-run']
+        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose', 'neo-tone', 'neo-run', 'neo-anon']
 
         # Create history file in user's home directory
         history_file = os.path.expanduser('~/.neo_history.txt')
@@ -158,6 +158,7 @@ class ImprovedTerminalUI:
   • <highlight>clear</highlight>                          - Clear the screen
   • <highlight>exit</highlight>                           - Exit Neo AI
   • <highlight>neo-verbose [on|off]</highlight>            - Toggle verbose output (show/hide MCP tags)
+  • <highlight>neo-anon [on|off|status]</highlight>        - Toggle prompt anonymization for external AI backends
   • <highlight>neo-use &lt;mode&gt; [model]</highlight>      - Switch AI backend at runtime
       Modes: {modes}
       Examples:
@@ -286,6 +287,21 @@ class ImprovedTerminalUI:
                         )
                     else:
                         msg = self.neo_ai.set_tone(name)
+                        print_formatted_text(
+                            HTML(f'<ansiblue><b>{msg}</b></ansiblue>'),
+                            style=NEO_STYLE,
+                        )
+
+                elif user_input.lower().startswith('neo-anon'):
+                    parts = user_input.split()
+                    state = parts[1].lower() if len(parts) >= 2 else ""
+                    if state not in ("on", "off", "status", ""):
+                        print_formatted_text(
+                            HTML('<info>Usage: neo-anon [on|off|status]</info>'),
+                            style=NEO_STYLE,
+                        )
+                    else:
+                        msg = self.neo_ai.toggle_anonymize(state)
                         print_formatted_text(
                             HTML(f'<ansiblue><b>{msg}</b></ansiblue>'),
                             style=NEO_STYLE,

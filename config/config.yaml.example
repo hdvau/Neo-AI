@@ -62,3 +62,19 @@ max_history_messages: 40
 # ── Command execution ─────────────────────────────────────────────────────────
 # Timeout in seconds per command. Increase for long-running tasks.
 command_timeout: 120
+
+# ── Anonymization ─────────────────────────────────────────────────────────────
+# Replaces PII and server-critical data with stable placeholders before sending
+# any text to an external AI backend. Local backends (ollama, lm_studio) are
+# never affected. Toggle at runtime with: neo-anon [on|off|status]
+#
+# Detected and replaced automatically:
+#   IP addresses (v4 and v6), MAC addresses, e-mail addresses, API keys,
+#   your Unix username, your hostname, home-directory paths (/home/<user>/...)
+#
+# deanonymize_responses: replace placeholders back in the AI response before
+# displaying it to you — keeps the conversation natural (recommended: true).
+anonymize:
+  enabled: false                   # set to true to activate for external backends
+  modes: [openai, claude]          # which backends to anonymize
+  deanonymize_responses: true      # restore real values in AI responses

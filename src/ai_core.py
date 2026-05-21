@@ -11,6 +11,7 @@ from src.model_context_loader import ModelContextLoader
 import openai
 from src.command_executor import wait_for_command_completion
 from src.approval_handler import ApprovalHandler
+from src.anonymizer import PromptAnonymizer
 
 try:
     import anthropic as _anthropic_sdk
@@ -98,6 +99,20 @@ class NeoAI:
         # Called once (then cleared) before the first terminal output of a query.
         # Used by the UI to stop the thinking spinner before any text appears.
         self._pre_output_cb = None
+
+        # ── Anonymizer ────────────────────────────────────────────────────────
+        # Replaces PII / server-critical data with stable placeholders before
+        # any text is sent to an external AI backend.  Only active for modes
+        # listed in config.anonymize.modes (default: openai, claude).
+        anon_cfg = config.get('anonymize', {})
+        self._anonymize_enabled: bool = anon_cfg.get('enabled', False)
+        self._anonymize_modes: set = set(anon_cfg.get('modes', ['openai', 'claude']))
+        self._deanonymize_responses: bool = anon_cfg.get('deanonymize_responses', True)
+        self._anonymizer = PromptAnonymizer()
+        self._anonymizer.seed(
+            username=os.environ.get('USER', os.environ.get('USERNAME', '')),
+            hostname=platform.node(),
+        )
         # Verbose mode: when False (default) MCP tags are stripped from the
         # displayed response so the terminal stays clean.  When True every
         # raw token the model generates is shown as-is.
@@ -290,6 +305,62 @@ class NeoAI:
             self._pre_output_cb()
             self._pre_output_cb = None
 
+    # ── Anonymizer helpers ────────────────────────────────────────────────────
+
+    def _should_anonymize(self) -> bool:
+        """True when anonymization is enabled and the current mode is external."""
+        return self._anonymize_enabled and self.mode in self._anonymize_modes
+
+    def _anon_messages(self, messages: list) -> list:
+        """Return a copy of *messages* with all content anonymised (if active)."""
+        if not self._should_anonymize():
+            return messages
+        return [
+            {**msg, 'content': self._anonymizer.anonymize(msg.get('content') or '')}
+            for msg in messages
+        ]
+
+    def _anon(self, text: str) -> str:
+        """Anonymise a single string (if active)."""
+        if not self._should_anonymize():
+            return text
+        return self._anonymizer.anonymize(text)
+
+    def _deanon(self, text: str) -> str:
+        """De-anonymise a response string (if active and configured)."""
+        if not self._should_anonymize() or not self._deanonymize_responses:
+            return text
+        return self._anonymizer.deanonymize(text)
+
+    def toggle_anonymize(self, state: str = '') -> str:
+        """Toggle or explicitly set anonymization mode.
+
+        Args:
+            state: ``"on"`` / ``"off"`` to set explicitly, ``""`` to toggle,
+                   ``"status"`` to report current state without changing it.
+
+        Returns:
+            A human-readable status string.
+        """
+        if state == 'status':
+            enabled = 'on' if self._anonymize_enabled else 'off'
+            modes   = ', '.join(sorted(self._anonymize_modes))
+            count   = self._anonymizer.mapping_count
+            return (
+                f"Anonymization: {enabled}  |  Active for: {modes}  |  "
+                f"Mappings this session: {count}"
+            )
+        if state == 'on':
+            self._anonymize_enabled = True
+        elif state == 'off':
+            self._anonymize_enabled = False
+        else:
+            self._anonymize_enabled = not self._anonymize_enabled
+
+        enabled = 'on' if self._anonymize_enabled else 'off'
+        modes   = ', '.join(sorted(self._anonymize_modes))
+        return f"Anonymization {enabled}. Active for: {modes}."
+
     def _refresh_system_prompt(self) -> None:
         """Rebuild and update the system prompt entry in history."""
         if self.history and self.history[0]["role"] == "system":
@@ -429,6 +500,8 @@ class NeoAI:
         """Stream a Claude response and process MCP tags in the reply."""
         system, messages = self._claude_messages()
         messages.append({"role": "user", "content": prompt})
+        system   = self._anon(system)
+        messages = self._anon_messages(messages)
 
         try:
             full_response = ""
@@ -459,6 +532,7 @@ class NeoAI:
                         full_response += text
                     self._print_streamed(full_response, clear_thinking=clear_thinking)
 
+            full_response = self._deanon(full_response)
             return self._process_response(full_response)
 
         except Exception as e:
@@ -473,6 +547,8 @@ class NeoAI:
         """
         system, messages = self._claude_messages()
         messages.append({"role": "user", "content": prompt})
+        system   = self._anon(system)
+        messages = self._anon_messages(messages)
 
         try:
             full_response = ""
@@ -498,7 +574,7 @@ class NeoAI:
                         full_response += text
                     self._print_streamed(full_response)
 
-            return full_response.strip()
+            return self._deanon(full_response).strip()
 
         except Exception as e:
             logging.error("Claude raw query failed: %s", e)
@@ -516,6 +592,7 @@ class NeoAI:
 
         messages = self.history.copy()
         messages.append({"role": "user", "content": instruction})
+        messages = self._anon_messages(messages)
 
         try:
             completion = self._openai_client.chat.completions.create(
@@ -547,6 +624,7 @@ class NeoAI:
                     full_response += content
                 self._print_streamed(full_response, clear_thinking=clear_thinking)
 
+            full_response = self._deanon(full_response)
             return self._process_response(full_response)
 
         except Exception as e:
@@ -562,6 +640,7 @@ class NeoAI:
         """
         messages = self.history.copy()
         messages.append({"role": "user", "content": prompt})
+        messages = self._anon_messages(messages)
 
         try:
             completion = self._openai_client.chat.completions.create(
@@ -590,7 +669,7 @@ class NeoAI:
                     full_response += content
                 self._print_streamed(full_response)
 
-            return full_response.strip()
+            return self._deanon(full_response).strip()
 
         except Exception as e:
             print(f"Error while querying {self.mode} ({self.model}): {e}")
@@ -892,6 +971,8 @@ class NeoAI:
             "Just read the text and report what you find."
         )
 
+        anon_prompt = self._anon(prompt)
+
         try:
             if self.mode == "claude":
                 full_response = ""
@@ -899,15 +980,15 @@ class NeoAI:
                     model=self.model,
                     max_tokens=self._claude_max_tokens,
                     system=analysis_system,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": anon_prompt}],
                 ) as stream:
                     for text in stream.text_stream:
                         full_response += text
-                return full_response.strip()
+                return self._deanon(full_response).strip()
             else:
                 messages = [
                     {"role": "system", "content": analysis_system},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": anon_prompt},
                 ]
                 completion = self._openai_client.chat.completions.create(
                     model=self.model,
@@ -915,7 +996,7 @@ class NeoAI:
                     temperature=self.temperature,
                     stream=False,
                 )
-                return completion.choices[0].message.content.strip()
+                return self._deanon(completion.choices[0].message.content).strip()
         except Exception as e:
             logging.error("_query_oneshot failed: %s", e)
             return ""
