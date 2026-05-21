@@ -515,7 +515,7 @@ class NeoAI:
                 messages=messages,
             ) as stream:
                 if self.verbose:
-                    # Stream tokens in real-time
+                    # Stream tokens in real-time (placeholders visible — verbose is debug mode)
                     is_first_chunk = True
                     for text in stream.text_stream:
                         if text:
@@ -528,13 +528,14 @@ class NeoAI:
                             print(text, end='', flush=True)
                             full_response += text
                     print()
+                    full_response = self._deanon(full_response)
                 else:
-                    # Collect silently, then print clean
+                    # Collect silently, deanonymize, then print clean
                     for text in stream.text_stream:
                         full_response += text
+                    full_response = self._deanon(full_response)
                     self._print_streamed(full_response, clear_thinking=clear_thinking)
 
-            full_response = self._deanon(full_response)
             return self._process_response(full_response)
 
         except Exception as e:
@@ -571,12 +572,14 @@ class NeoAI:
                             print(text, end='', flush=True)
                             full_response += text
                     print()
+                    full_response = self._deanon(full_response)
                 else:
                     for text in stream.text_stream:
                         full_response += text
+                    full_response = self._deanon(full_response)
                     self._print_streamed(full_response)
 
-            return self._deanon(full_response).strip()
+            return full_response.strip()
 
         except Exception as e:
             logging.error("Claude raw query failed: %s", e)
@@ -620,13 +623,14 @@ class NeoAI:
                         print(content, end='', flush=True)
                         full_response += content
                 print()
+                full_response = self._deanon(full_response)
             else:
                 for chunk in completion:
                     content = chunk.choices[0].delta.content or '' if chunk.choices else ''
                     full_response += content
+                full_response = self._deanon(full_response)
                 self._print_streamed(full_response, clear_thinking=clear_thinking)
 
-            full_response = self._deanon(full_response)
             return self._process_response(full_response)
 
         except Exception as e:
@@ -665,13 +669,15 @@ class NeoAI:
                         print(content, end='', flush=True)
                         full_response += content
                 print()
+                full_response = self._deanon(full_response)
             else:
                 for chunk in completion:
                     content = chunk.choices[0].delta.content or '' if chunk.choices else ''
                     full_response += content
+                full_response = self._deanon(full_response)
                 self._print_streamed(full_response)
 
-            return self._deanon(full_response).strip()
+            return full_response.strip()
 
         except Exception as e:
             print(f"Error while querying {self.mode} ({self.model}): {e}")
