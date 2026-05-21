@@ -116,18 +116,18 @@ class PromptAnonymizer:
         if not text:
             return text
 
-        # Step 1: replace previously seen exact values first so they get their
-        # established placeholder even when they appear inside a new context.
+        # Step 1: capture full home/root paths BEFORE seeded-value substitution.
+        # If username replacement runs first, '/home/user/x' becomes
+        # '/home/[USER_1]/x' and the path regex breaks on the bracket.
+        text = _HOME_PATH_RE.sub(self._path_replacer, text)
+        text = _ROOT_PATH_RE.sub(self._path_replacer, text)
+
+        # Step 2: replace previously seen exact values (hostname, username, …).
         for real, ph in list(self._fwd.items()):
             escaped = re.escape(real)
             text = re.sub(rf'(?<!\[)\b{escaped}\b(?!\])', ph, text)
 
-        # Step 2: anonymise home/root paths before the generic regex pass so
-        # the full path string is captured as a single PATH_N token.
-        text = _HOME_PATH_RE.sub(self._path_replacer, text)
-        text = _ROOT_PATH_RE.sub(self._path_replacer, text)
-
-        # Step 3: regex-based pattern detection
+        # Step 3: regex-based pattern detection (IPs, MACs, e-mail, keys).
         for category, pattern in _PATTERNS:
             text = pattern.sub(self._make_replacer(category), text)
 

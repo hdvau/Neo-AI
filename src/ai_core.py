@@ -346,10 +346,12 @@ class NeoAI:
             enabled = 'on' if self._anonymize_enabled else 'off'
             modes   = ', '.join(sorted(self._anonymize_modes))
             count   = self._anonymizer.mapping_count
-            return (
+            header  = (
                 f"Anonymization: {enabled}  |  Active for: {modes}  |  "
                 f"Mappings this session: {count}"
             )
+            detail = self._anonymizer.summary()
+            return f"{header}\n{detail}"
         if state == 'on':
             self._anonymize_enabled = True
         elif state == 'off':
