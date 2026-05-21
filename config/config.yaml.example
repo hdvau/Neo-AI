@@ -56,6 +56,12 @@ command_approval:
 # ── Streaming ────────────────────────────────────────────────────────────────
 stream: true
 
+# ── Tone ─────────────────────────────────────────────────────────────────────
+# Set a default response tone (name of a file in config/tones/ without .md).
+# Can also be changed at runtime with: neo-tone <name> | off
+# Leave empty ("") for the model's default style.
+tone: ""
+
 # ── History ──────────────────────────────────────────────────────────────────
 max_history_messages: 40
 

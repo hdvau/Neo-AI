@@ -131,6 +131,17 @@ class NeoAI:
             Path(__file__).parent.parent / "config" / "tones"
         )
 
+        # Path to the live config file — used by set_tone() to persist the
+        # active tone across sessions.
+        self._config_path: Path = (
+            Path(__file__).parent.parent / "config" / "config.yaml"
+        )
+
+        # Restore persisted tone from config (if any).
+        _saved_tone = config.get('tone', '')
+        if _saved_tone:
+            self.set_tone(_saved_tone)
+
         # Load the system prompt (PrePromt.md) so the model knows to use
         # MCP tags for command execution. Without this the model answers as a
         # plain chatbot and never generates <mcp:terminal> tags.
@@ -284,6 +295,7 @@ class NeoAI:
             self._active_tone = ""
             self._tone_content = ""
             self._refresh_system_prompt()
+            self._persist_tone("")
             return "Tone cleared — using default model style."
 
         tone_file = self._tones_dir / f"{name}.md"
@@ -295,9 +307,32 @@ class NeoAI:
             self._tone_content = tone_file.read_text(encoding="utf-8").strip()
             self._active_tone = name
             self._refresh_system_prompt()
+            self._persist_tone(name)
             return f"Tone set to '{name}'."
         except OSError as exc:
             return f"Could not load tone '{name}': {exc}"
+
+    def _persist_tone(self, name: str) -> None:
+        """Write the active tone name to config.yaml so it survives restarts."""
+        if not self._config_path.exists():
+            return
+        try:
+            raw = self._config_path.read_text(encoding="utf-8")
+            import re as _re
+            # Replace existing `tone:` line (anywhere in file).
+            if _re.search(r'^tone\s*:', raw, flags=_re.MULTILINE):
+                raw = _re.sub(
+                    r'^(tone\s*:).*$',
+                    f'tone: "{name}"',
+                    raw,
+                    flags=_re.MULTILINE,
+                )
+            else:
+                # Append the key before a trailing newline / at end of file.
+                raw = raw.rstrip('\n') + f'\ntone: "{name}"\n'
+            self._config_path.write_text(raw, encoding="utf-8")
+        except OSError as exc:
+            logging.warning("Could not persist tone to config.yaml: %s", exc)
 
     def _fire_pre_output_cb(self) -> None:
         """Call and clear _pre_output_cb exactly once before any terminal output."""
@@ -1001,7 +1036,7 @@ class NeoAI:
                 completion = self._openai_client.chat.completions.create(
                     model=self.model,
                     messages=messages,
-                    temperature=self.temperature,
+                    temperature=0,
                     stream=False,
                 )
                 return self._deanon(completion.choices[0].message.content).strip()
