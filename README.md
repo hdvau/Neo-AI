@@ -17,6 +17,7 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 - **Model-specific context plugins** — drop a `.md` file into `config/model_contexts/` to inject model-aware instructions automatically; Ollama supports per-model plugin files (e.g. `ollama.gemma.md`)
 - **Tone system** — switch Neo's communication style mid-session with `neo-tone` (professional, technical, minimal, or off)
 - **Runbook support** — run structured Markdown health-check runbooks with `neo-run`; all commands execute without approval prompts and the AI analyses the collected output
+- **Prompt anonymization** — automatically replace IPs, hostnames, usernames, paths, and API keys with stable placeholders before sending to external AI backends; real values are restored in responses
 - **Clean output by default** — MCP protocol tags are hidden; toggle verbose mode with `neo-verbose`
 - **Conversation history** with configurable length and automatic trimming
 - **Persistent memory** loaded as context at startup
@@ -148,10 +149,11 @@ neo --debug      # enable debug logging
 Ask a single question directly from the shell — without entering an interactive session. Neo processes the prompt, prints the response (with command approval if needed), and exits:
 
 ```bash
-neo: zeige mir den Inhalt von diesem Verzeichnis
+neo: show me the contents of this directory
 neo: how much disk space is left?
 neo: which processes are listening on port 8080?
 neo: create a summary of all .log files in /var/log
+neo: is nginx running and when was it last restarted?
 ```
 
 `neo:` is an alias installed alongside `neo`. It is identical to passing arguments directly:
@@ -181,6 +183,7 @@ dha@neo [ollama:gemma4:latest] >
 | `neo-verbose [on\|off]` | Toggle verbose output (show/hide MCP tags) |
 | `neo-tone <name\|off>` | Switch Neo's communication tone |
 | `neo-run <runbook> [--tag TAG] [--section N]` | Run a health-check runbook |
+| `neo-anon [on\|off\|status]` | Toggle prompt anonymization for external backends |
 
 ### Switching backends mid-session
 
@@ -241,6 +244,43 @@ neo-tone off            # revert to the default tone from PrePromt.md
 ```
 
 Tones are plain `.md` files in `config/tones/`. Add your own by dropping a file there — no code changes needed. The active tone is appended to the system prompt as a third layer (after the base prompt and model-context plugins) and survives `neo-use` backend switches.
+
+### Prompt anonymization
+
+When using external AI backends (OpenAI, Claude) Neo can automatically replace sensitive information with stable numbered placeholders before sending any text to the API. The AI sees `[IP_1]` and `[HOST_1]` instead of your real server addresses and hostnames. Responses are optionally de-anonymized before display so the conversation stays natural.
+
+**What gets replaced:**
+
+| Category | Example | Placeholder |
+|---|---|---|
+| IPv4 / IPv6 addresses | `192.168.1.10`, `::1` | `[IP_1]`, `[IP6_1]` |
+| MAC addresses | `aa:bb:cc:dd:ee:ff` | `[MAC_1]` |
+| E-mail addresses | `admin@example.com` | `[EMAIL_1]` |
+| API / secret keys | `sk-...`, `sk-ant-...` | `[API_KEY_1]` |
+| Your hostname | `bermudaserver` | `[HOST_1]` |
+| Your username | `dha` | `[USER_1]` |
+| Home-directory paths | `/home/dha/projects/` | `[PATH_1]` |
+
+Placeholders are **session-stable** — the same value always gets the same placeholder so the AI can give consistent answers across follow-up messages. Standard system paths (`/etc/`, `/usr/bin/`, `/var/log/`) are left unchanged.
+
+**Enable in `config/config.yaml`:**
+
+```yaml
+anonymize:
+  enabled: true
+  modes: [openai, claude]       # local backends are never affected
+  deanonymize_responses: true   # restore real values in AI responses
+```
+
+**Toggle at runtime:**
+
+```
+neo-anon on       # enable for this session
+neo-anon off      # disable
+neo-anon status   # show current state and number of active mappings
+```
+
+Local backends (Ollama, LM Studio) are never anonymized regardless of the setting.
 
 ---
 
@@ -354,9 +394,9 @@ Neo uses an internal Machine Communication Protocol to interact with the system.
 **One-shot from any directory:**
 
 ```bash
-dha@bermudaserver:~/gitrepos/server-ops$ neo: zeige mir den Inhalt von diesem Verzeichnis
+dha@bermudaserver:~/gitrepos/server-ops$ neo: show me the contents of this directory
 ⠴ Thinking.
-Neo: Ich schaue mir das aktuelle Verzeichnis an.
+Neo: Let me list the files in your current directory.
 
 Neo > ls -la
   ↳ Execute this command? [Enter/n]:
