@@ -60,7 +60,7 @@ class ImprovedTerminalUI:
         """Initialize the terminal UI with Neo AI instance and config."""
         self.neo_ai = neo_ai
         self.config = config
-        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose', 'neo-tone', 'neo-run', 'neo-anon']
+        self.commands = ['help', 'history', 'clear', 'exit', 'neo-use', 'neo-verbose', 'neo-tone', 'neo-run', 'neo-anon', 'neo-history']
 
         # Create history file in user's home directory
         history_file = os.path.expanduser('~/.neo_history.txt')
@@ -159,6 +159,7 @@ class ImprovedTerminalUI:
   • <highlight>exit</highlight>                           - Exit Neo AI
   • <highlight>neo-verbose [on|off]</highlight>            - Toggle verbose output (show/hide MCP tags)
   • <highlight>neo-anon [on|off|status]</highlight>        - Toggle prompt anonymization for external AI backends
+  • <highlight>neo-history clear</highlight>               - Clear conversation history (prompts for confirmation)
   • <highlight>neo-use &lt;mode&gt; [model]</highlight>      - Switch AI backend at runtime
       Modes: {modes}
       Examples:
@@ -274,6 +275,30 @@ class ImprovedTerminalUI:
                 elif user_input.lower() == 'clear':
                     clear()
                     self.print_banner()
+
+                elif user_input.lower().startswith('neo-history'):
+                    parts = user_input.split()
+                    if len(parts) >= 2 and parts[1].lower() == 'clear':
+                        confirm = self.session.prompt(
+                            HTML('<ansired>Clear conversation history? [y/N] </ansired>'),
+                            style=NEO_STYLE,
+                        ).strip().lower()
+                        if confirm == 'y':
+                            self.neo_ai.reset_history()
+                            print_formatted_text(
+                                HTML('<ansiblue><b>Conversation history cleared.</b></ansiblue>'),
+                                style=NEO_STYLE,
+                            )
+                        else:
+                            print_formatted_text(
+                                HTML('<ansigray>Cancelled.</ansigray>'),
+                                style=NEO_STYLE,
+                            )
+                    else:
+                        print_formatted_text(
+                            HTML('<info>Usage: neo-history clear</info>'),
+                            style=NEO_STYLE,
+                        )
 
                 elif user_input.lower().startswith('neo-tone'):
                     parts = user_input.split()

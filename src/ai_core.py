@@ -1195,4 +1195,31 @@ class NeoAI:
         else:
             print("\033[1;34mNeo:\033[0m (no summary returned)")
 
+        # Save the full AI report (per-section analyses + summary) alongside
+        # the raw log so findings can be reviewed later without re-running.
+        report_path = log_path.parent / f"runbook_{rb_stem}_{ts}_report.md"
+        try:
+            report_lines = [
+                f"# Runbook Report: {runbook.title}",
+                f"Generated: {_dt.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Raw log: {log_path}",
+                "",
+                "---",
+                "",
+                "## Per-section Analysis",
+                "",
+                combined_analyses,
+                "",
+                "---",
+                "",
+                "## Executive Summary",
+                "",
+                summary or "(no summary returned)",
+            ]
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text("\n".join(report_lines), encoding="utf-8")
+            print(f"\033[90mAI report saved to:  {report_path}\033[0m\n", flush=True)
+        except OSError as exc:
+            logging.warning("Could not save runbook report: %s", exc)
+
         return summary or ""
