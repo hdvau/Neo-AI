@@ -94,13 +94,21 @@ write_launcher() {
 if [[ -w "/usr/local/bin" ]]; then
     write_launcher "$SYSTEM_BIN"
     ok "'neo' installed to $SYSTEM_BIN"
+    # Also install 'neo:' for one-shot usage: neo: <prompt>
+    write_launcher "${SYSTEM_BIN}:"
+    ok "'neo:' installed to ${SYSTEM_BIN}:"
 elif command -v sudo &>/dev/null; then
     printf '%s\n' "$NEO_LAUNCHER" | sudo tee "$SYSTEM_BIN" > /dev/null
     sudo chmod +x "$SYSTEM_BIN"
     ok "'neo' installed to $SYSTEM_BIN (via sudo)"
+    printf '%s\n' "$NEO_LAUNCHER" | sudo tee "${SYSTEM_BIN}:" > /dev/null
+    sudo chmod +x "${SYSTEM_BIN}:"
+    ok "'neo:' installed to ${SYSTEM_BIN}: (via sudo)"
 else
     write_launcher "$USER_BIN"
     ok "'neo' installed to $USER_BIN"
+    write_launcher "${USER_BIN}:"
+    ok "'neo:' installed to ${USER_BIN}:"
 
     # Ensure ~/.local/bin is on PATH
     if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
@@ -122,5 +130,5 @@ fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}${BOLD}  Done!${NC}  Run ${BOLD}neo${NC} to start."
+echo -e "${GREEN}${BOLD}  Done!${NC}  Run ${BOLD}neo${NC} to start, or ${BOLD}neo: <prompt>${NC} for one-shot mode."
 echo ""

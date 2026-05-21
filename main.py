@@ -88,7 +88,41 @@ def parse_arguments():
     parser.add_argument('--classic', action='store_true', help='Use classic terminal interface')
     parser.add_argument('--version', action='version', version='Neo AI v1.1.0')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('prompt', nargs='*', help='One-shot prompt — run once and exit')
     return parser.parse_args()
+
+def _run_oneshot(neo_ai, prompt_text: str) -> None:
+    """Execute a single prompt and exit (non-interactive mode)."""
+    import threading
+    import itertools
+    import time
+
+    _FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+    stop = threading.Event()
+
+    def _spin():
+        for f in itertools.cycle(_FRAMES):
+            if stop.is_set():
+                break
+            print(f'\r{f} Thinking.', end='', flush=True)
+            time.sleep(0.1)
+        print('\r' + ' ' * 20 + '\r', end='', flush=True)
+
+    def _stop_spinner():
+        stop.set()
+        t.join()
+
+    t = threading.Thread(target=_spin, daemon=True)
+    t.start()
+    neo_ai._pre_output_cb = _stop_spinner
+    try:
+        neo_ai.query(prompt_text, clear_thinking=True)
+    finally:
+        stop.set()
+        t.join()
+        neo_ai._pre_output_cb = None
+
 
 def main():
     """Main entry point for Neo AI."""
@@ -105,6 +139,13 @@ def main():
         # Initialize NeoAI
         neo_ai = NeoAI(config)
 
+        # ── One-shot mode ────────────────────────────────────────────────────
+        if args.prompt:
+            prompt_text = ' '.join(args.prompt)
+            _run_oneshot(neo_ai, prompt_text)
+            sys.exit(0)
+
+        # ── Interactive mode ─────────────────────────────────────────────────
         # Choose interface based on argument and availability
         if args.classic or not IMPROVED_UI_AVAILABLE:
             # Use classic terminal interface
