@@ -17,6 +17,8 @@ Neo is an AI-powered terminal assistant for macOS and Linux. It understands natu
 - **Model-specific context plugins** — drop a `.md` file into `config/model_contexts/` to inject model-aware instructions automatically; Ollama supports per-model plugin files (e.g. `ollama.gemma.md`)
 - **Tone system** — switch Neo's communication style mid-session with `neo-tone` (professional, technical, minimal, or off)
 - **Runbook support** — run structured Markdown health-check runbooks with `neo-run`; all commands execute without approval prompts and the AI analyses the collected output
+- **Security runbooks** — 8 dedicated security runbooks: CIS hardening assessment, Docker security audit, threat-hunting for persistence mechanisms, Linux digital forensics, network threat hunting, incident response, and web log attack analysis
+- **Expanded security MCP protocol** — 32 named commands across users/network/processes/filesystem/persistence/kernel/SSH/integrity categories; quick checks without writing a full runbook
 - **Prompt anonymization** — automatically replace IPs, hostnames, usernames, paths, and API keys with stable placeholders before sending to external AI backends; real values are restored in responses
 - **Clean output by default** — MCP protocol tags are hidden; toggle verbose mode with `neo-verbose`
 - **Conversation history** with configurable length and automatic trimming
@@ -330,9 +332,25 @@ command --to --run
 
 ### Bundled runbooks
 
+**Security assessment:**
+
 | File | Purpose |
 |---|---|
-| `linux-server-health.md` | Disk health, performance, Docker, networking, failed logins |
+| `cis-linux-assessment.md` | CIS Level 1 compliance: filesystem, services, SSH, users, audit, SUID |
+| `docker-security.md` | CIS Docker Benchmark: daemon config, runtime, image scanning, isolation |
+| `threat-hunting-persistence.md` | Hunt: cron, systemd, shell profiles, SSH keys, SUID, LD_PRELOAD, kernel modules |
+| `linux-forensics.md` | IR volatile evidence: processes, connections, deleted-running files, auth logs |
+| `network-threat-hunting.md` | C2 beaconing, DNS exfiltration/tunneling, lateral movement, ARP anomalies |
+| `incident-response.md` | Structured IR: triage → containment (approval) → evidence → eradication (approval) → recovery |
+| `webserver-log-analysis.md` | nginx/Apache: SQLi, XSS, path traversal, scanner signatures, attack IPs |
+
+**Health checks:**
+
+| File | Purpose |
+|---|---|
+| `linux-server-health.md` | Disk, CPU, Docker, networking, failed logins (daily health check) |
+| `homeserver-runbook.md` | Full home server audit: storage, SMART, performance, services, backups |
+| `macbook.md` | macOS health: storage, battery, system load, network, security |
 
 Place your own runbooks in `config/runbooks/` — they appear in Tab completion immediately.
 
@@ -362,16 +380,18 @@ Bundled plugins:
 
 | File | Applies to |
 |---|---|
-| `default.md` | All models |
+| `default.md` | All models — base rules, full security runbook catalog and MCP command reference |
 | `claude.md` | Claude mode |
 | `openai.md` | All OpenAI models |
 | `openai_reasoning.md` | o1 / o3 / o4 / gpt-5 series |
-| `ollama.md` | All Ollama models |
+| `ollama.md` | All Ollama models — includes `--section N` guidance for managing context limits |
 | `ollama.gemma.md` | Ollama + gemma4 / gemma3 / gemma family |
 | `ollama.qwen.md` | Ollama + qwen3 / qwen2 / qwen family |
 | `ollama.llama.md` | Ollama + llama3 / llama2 / llama family |
 | `ollama.mistral.md` | Ollama + mistral / mixtral / devstral family |
 | `lm_studio.md` | All LM Studio models |
+| `security-cloud.md` | Claude mode — extended security tool reference (35 tools) + runbook decision guide + analysis rules |
+| `security-openai.md` | OpenAI mode — same extended security context as security-cloud.md |
 
 ---
 
@@ -385,7 +405,20 @@ Neo uses an internal Machine Communication Protocol to interact with the system.
 | `files` | Read / write / list files | `read:/etc/hosts`, `write:/tmp/note.txt content` |
 | `analyze` | Full system overview | CPU, memory, disk, network, services |
 | `network` | Network operations | `connections`, `interfaces`, `ping:host`, `scan:192.168.1.0/24` |
-| `security` | Security checks | `users`, `ports`, `listening` |
+| `security` | Security checks (32 commands) | `users`, `ports`, `connections`, `suid`, `authorized-keys`, `ld-preload`, `rootkits`, `nopasswd-sudo`, `deleted-running`, `world-writable`, … |
+
+Full security command reference is in `config/model_contexts/default.md`. Quick-reference by category:
+
+| Category | Commands |
+|---|---|
+| Users & accounts | `users` `groups` `sudo` `accounts` `logins` `history` `failed-logins` `nopasswd-sudo` `uid0` `shadow-perms` `inactive-accounts` |
+| Network | `ports` `listening` `connections` `arp` `firewall` `fail2ban` |
+| Processes | `processes` `processes-tree` `deleted-running` |
+| File system | `suid` `sgid` `capabilities` `world-writable` `unowned-files` `tmp-executables` |
+| Persistence | `cronjobs` `crontabs-all` `systemd-units` `systemd-timers` `authorized-keys` `ld-preload` |
+| Kernel & SSH | `kernelmodules` `kernelmodules-unsigned` `ssh-config` `ssh-keys` |
+| Integrity | `rootkits` |
+| Parametric | `check:<path>` `vulnerabilities:<package>` |
 
 ---
 
@@ -450,23 +483,34 @@ Neo-AI/
 │   ├── config.yaml.example          # Template — copied to config.yaml on install
 │   ├── PrePromt.md                  # Base system prompt loaded at startup
 │   ├── model_contexts/              # Model-specific context plugins (drop-in .md files)
-│   │   ├── default.md               #   Applied to every model
+│   │   ├── default.md               #   Applied to every model (incl. security runbook catalog)
 │   │   ├── claude.md
 │   │   ├── openai.md
 │   │   ├── openai_reasoning.md      #   o1 / o3 / o4 / gpt-5 series
-│   │   ├── ollama.md
+│   │   ├── ollama.md                #   Includes section-mode guidance for local context limits
 │   │   ├── ollama.gemma.md          #   Gemma family
 │   │   ├── ollama.qwen.md           #   Qwen family
 │   │   ├── ollama.llama.md          #   Llama family
 │   │   ├── ollama.mistral.md        #   Mistral / Mixtral family
-│   │   └── lm_studio.md
+│   │   ├── lm_studio.md
+│   │   ├── security-cloud.md        #   Extended security reference for Claude (35 tools + decision guide)
+│   │   └── security-openai.md       #   Extended security reference for OpenAI (identical content)
 │   ├── tones/                       # Tone plugins (drop-in .md files)
 │   │   ├── professional.md
 │   │   ├── technical.md
 │   │   ├── minimal.md
 │   │   └── casual.md
-│   └── runbooks/                    # Health-check runbooks (drop-in .md files)
-│       └── linux-server-health.md   #   Disk, performance, Docker, network, security
+│   └── runbooks/                    # Health-check and security runbooks (drop-in .md files)
+│       ├── cis-linux-assessment.md  #   CIS Level 1 compliance audit
+│       ├── docker-security.md       #   CIS Docker Benchmark
+│       ├── threat-hunting-persistence.md  # Persistence mechanism hunt
+│       ├── linux-forensics.md       #   Volatile evidence collection (IR)
+│       ├── network-threat-hunting.md #  C2, DNS exfil, ARP, lateral movement
+│       ├── incident-response.md     #   Full IR lifecycle (triage → recovery)
+│       ├── webserver-log-analysis.md #  nginx/Apache attack pattern detection
+│       ├── linux-server-health.md   #   Daily health check
+│       ├── homeserver-runbook.md    #   Full home server audit
+│       └── macbook.md              #   macOS health check
 ├── src/
 │   ├── ai_core.py                   # NeoAI class, backend dispatch, history, runbooks
 │   ├── model_context_loader.py      # Plugin loader for model_contexts/

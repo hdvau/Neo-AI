@@ -17,3 +17,41 @@ Universal rules that apply to every model and mode.
 - Never fabricate file paths. Derive all paths from the `<context>` block or ask the user.
 - If a command fails, report the exact error message and suggest one concrete fix.
 - Do not install packages or tools unless the user explicitly asks.
+
+## Security Runbooks
+
+Run with `neo-run <name>` — all commands execute without approval prompts, AI analyses the full output:
+
+| Runbook | Purpose |
+|---|---|
+| `cis-linux-assessment` | CIS Level 1 compliance: filesystem, services, SSH, users, audit, SUID |
+| `docker-security` | CIS Docker Benchmark + container runtime, images, network isolation |
+| `threat-hunting-persistence` | Hunt: cron, systemd, shell profiles, SSH keys, SUID, LD_PRELOAD, kernel modules |
+| `linux-forensics` | IR volatile evidence: processes, connections, deleted-running files, auth logs |
+| `network-threat-hunting` | C2 beaconing, DNS exfiltration/tunneling, lateral movement, ARP anomalies |
+| `incident-response` | Structured IR: triage → containment → evidence → eradication → recovery |
+| `webserver-log-analysis` | nginx/Apache: SQLi, XSS, path traversal, scanner signatures, attack IPs |
+| `linux-server-health` | Disk, CPU, Docker, networking, failed logins (daily health check) |
+| `homeserver-runbook` | Full home server audit: storage, SMART, performance, services, backups |
+
+## Security MCP Protocol — Full Command Set
+
+`<mcp:security>` accepts these keywords:
+
+**Users & accounts:** `users` `groups` `sudo` `accounts` `logins` `history` `failed-logins` `nopasswd-sudo` `uid0` `shadow-perms` `inactive-accounts`
+
+**Network:** `ports` `listening` `connections` `arp` `firewall` `fail2ban`
+
+**Processes:** `processes` `processes-tree` `deleted-running`
+
+**File system:** `suid` `sgid` `capabilities` `world-writable` `unowned-files` `tmp-executables`
+
+**Persistence:** `cronjobs` `crontabs-all` `systemd-units` `systemd-timers` `authorized-keys` `ld-preload`
+
+**Kernel & SSH:** `kernelmodules` `kernelmodules-unsigned` `ssh-config` `ssh-keys`
+
+**Integrity:** `rootkits`
+
+**Parametric:** `check:<path>` `vulnerabilities:<package>`
+
+For quick checks use the protocol directly. For multi-step investigations, use a runbook.

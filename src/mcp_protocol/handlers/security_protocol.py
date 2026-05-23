@@ -29,22 +29,58 @@ class SecurityProtocolHandler(ProtocolHandler):
 
         # Define the security commands
         self.security_commands = {
+            # --- User & Account Enumeration ---
             "users": "cat /etc/passwd | grep -v '/nologin' | grep -v '/false'",
             "groups": "cat /etc/group",
-            "ports": "netstat -tuln || ss -tuln",
             "sudo": "sudo -l",
-            "listening": "lsof -i -P -n | grep LISTEN || netstat -tuln | grep LISTEN || ss -tuln | grep LISTEN",
             "accounts": "lastlog | grep -v 'Never logged in'",
             "logins": "last -n 20",
             "history": "history | tail -n 20",
+            "failed-logins": "grep 'Failed password' /var/log/auth.log 2>/dev/null || journalctl -u sshd 2>/dev/null | grep 'Failed password'",
+            "nopasswd-sudo": "grep -r 'NOPASSWD' /etc/sudoers /etc/sudoers.d/ 2>/dev/null",
+            "uid0": "awk -F: '$3==0{print $1}' /etc/passwd",
+            "shadow-perms": "ls -la /etc/shadow /etc/gshadow /etc/passwd /etc/group 2>/dev/null",
+            "inactive-accounts": "awk -F: '$2~/^[^!*]/ && $7~/nologin|false/{print $1}' /etc/passwd 2>/dev/null; chage -l root 2>/dev/null | head -5",
+
+            # --- Network & Port Inspection ---
+            "ports": "netstat -tuln 2>/dev/null || ss -tuln",
+            "listening": "lsof -i -P -n 2>/dev/null | grep LISTEN || ss -tlnp",
+            "connections": "ss -tunap 2>/dev/null | head -40",
+            "arp": "arp -n 2>/dev/null || ip neigh show",
+            "firewall": "iptables -L -n 2>/dev/null || nft list ruleset 2>/dev/null || ufw status verbose 2>/dev/null",
+            "fail2ban": "fail2ban-client status 2>/dev/null && fail2ban-client status sshd 2>/dev/null",
+
+            # --- Process & Runtime Inspection ---
+            "processes": "ps aux --sort=-%cpu | head -30",
+            "processes-tree": "ps auxf 2>/dev/null | head -60",
+            "deleted-running": "ls -la /proc/*/exe 2>/dev/null | grep deleted | head -20",
+
+            # --- File System & Permissions ---
             "suid": "find / -perm -4000 -ls 2>/dev/null | head -20",
             "sgid": "find / -perm -2000 -ls 2>/dev/null | head -20",
-            "processes": "ps aux --forest",
+            "capabilities": "getcap -r / 2>/dev/null | head -20 || echo 'getcap not found'",
+            "world-writable": "find / -xdev -perm -0002 -type f 2>/dev/null | grep -v '/proc/' | head -20",
+            "unowned-files": "find / -xdev \\( -nouser -o -nogroup \\) -ls 2>/dev/null | grep -v '/proc/' | head -20",
+            "tmp-executables": "find /tmp /var/tmp /dev/shm -type f -executable 2>/dev/null",
+
+            # --- Persistence Mechanisms ---
+            "cronjobs": "crontab -l 2>/dev/null; ls -la /etc/cron.d/ /etc/cron.daily/ /etc/cron.weekly/ /etc/cron.monthly/ 2>/dev/null; cat /etc/crontab 2>/dev/null",
+            "crontabs-all": "for u in $(cut -d: -f1 /etc/passwd); do crontab -u $u -l 2>/dev/null && echo \"--- $u ---\"; done",
+            "systemd-units": "systemctl list-units --type=service --state=running --no-pager 2>/dev/null | head -40",
+            "systemd-timers": "systemctl list-timers --all --no-pager 2>/dev/null",
+            "authorized-keys": "find /home /root -name authorized_keys 2>/dev/null -exec echo '=== {} ===' \\; -exec cat {} \\;",
+            "ld-preload": "cat /etc/ld.so.preload 2>/dev/null && echo '---' && env | grep LD_PRELOAD || echo 'LD_PRELOAD not set'",
+
+            # --- Kernel & Modules ---
             "kernelmodules": "lsmod",
-            "capabilities": "getcap -r / 2>/dev/null || echo 'getcap command not found'",
-            "cronjobs": "crontab -l 2>/dev/null; ls -la /etc/cron*/ 2>/dev/null",
-            "ssh-config": "cat /etc/ssh/sshd_config 2>/dev/null | grep -v '^#' | grep -v '^$'",
-            "failed-logins": "grep 'Failed password' /var/log/auth.log 2>/dev/null || journalctl -u sshd 2>/dev/null | grep 'Failed password'"
+            "kernelmodules-unsigned": "for m in $(lsmod | awk 'NR>1{print $1}'); do modinfo $m 2>/dev/null | grep -q '^signer' || echo \"UNSIGNED: $m\"; done",
+
+            # --- SSH Configuration ---
+            "ssh-config": "sshd -T 2>/dev/null | grep -iE 'permitroot|passwordauth|pubkeyauth|permitemptypassword|protocol|port|x11forward|allowtcpforward|maxauthtries' || cat /etc/ssh/sshd_config 2>/dev/null | grep -v '^#' | grep -v '^$'",
+            "ssh-keys": "find /home /root /etc/ssh -name '*.pub' -o -name 'id_*' 2>/dev/null | grep -v '.pub$' | xargs ls -la 2>/dev/null | head -20",
+
+            # --- Rootkit & Integrity Checks ---
+            "rootkits": "rkhunter --check --skip-keypress 2>/dev/null | tail -30 || chkrootkit 2>/dev/null | grep -iE 'infected|suspect|warning' || echo 'No rootkit scanner found (install rkhunter or chkrootkit)'",
         }
 
     def handle(self, command: str, require_approval: bool, auto_approve: bool) -> Dict[str, Any]:
@@ -113,8 +149,8 @@ class SecurityProtocolHandler(ProtocolHandler):
 
             else:
                 valid_commands = ", ".join(sorted(self.security_commands.keys()))
-                special_commands = "check:file/dir, vulnerabilities:package"
-                result["output"] = f"Unknown security command. Valid options: {valid_commands}, {special_commands}"
+                special_commands = "check:<path>, vulnerabilities:<package>"
+                result["output"] = f"Unknown security command.\n\nValid commands: {valid_commands}\n\nParametric: {special_commands}"
                 logger.warning(f"Unknown security command: {command}")
 
         except Exception as e:
