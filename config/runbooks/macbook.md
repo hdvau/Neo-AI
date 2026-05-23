@@ -14,6 +14,25 @@ Produce a final summary report with: ✅ OK · ⚠️ Warning · 🔴 Critical p
 
 ---
 
+## 0. System Identity `[DAILY]`
+
+### 0.1 Hostname & macOS Version
+
+```bash
+scutil --get ComputerName 2>/dev/null || hostname
+scutil --get LocalHostName 2>/dev/null || true
+sw_vers
+uname -srm
+system_profiler SPSoftwareDataType 2>/dev/null | grep -E "(System Version|Kernel Version|Boot Volume|Computer Name|User Name)"
+```
+
+**Analyze:**
+- Extract and report: ComputerName, macOS version (name + build), kernel version, architecture
+- Flag: macOS version that is end-of-life or more than 2 major versions behind current release
+- This section provides the header values for the final report (Hostname / macOS Version)
+
+---
+
 ## 1. Storage `[DAILY]`
 
 ### 1.1 Disk Space
