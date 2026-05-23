@@ -1086,12 +1086,13 @@ class NeoAI:
                 completion = self._openai_client.chat.completions.create(
                     model=self.model,
                     messages=messages,
-                    temperature=0,
+                    temperature=self.temperature,
                     stream=False,
                 )
                 return self._deanon(completion.choices[0].message.content).strip()
         except Exception as e:
             logging.error("_query_oneshot failed: %s", e)
+            print(f"\033[33m[runbook] AI query failed: {e}\033[0m", flush=True)
             return ""
 
     def run_runbook(
