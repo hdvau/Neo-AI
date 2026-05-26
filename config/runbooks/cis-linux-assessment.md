@@ -53,6 +53,26 @@ SECTION BREAKDOWN
 
 ---
 
+## 0. System Identity [CIS-0]
+
+### 0.1 Hostname & OS Version
+
+```bash
+hostname
+uname -n
+cat /etc/os-release 2>/dev/null | grep -E "^(PRETTY_NAME|VERSION_ID|ID)="
+lsb_release -ds 2>/dev/null || true
+uname -srm
+date -u '+%Y-%m-%d %H:%M:%S UTC'
+```
+
+**Analyze:**
+- Extract hostname, OS name + version, kernel version, and timestamp
+- These values populate the report header: `Host: <hostname> | OS: <distro + version> | Date: <timestamp>`
+- Flag: OS that is end-of-life or missing active security support
+
+---
+
 ## 1. Filesystem Configuration [CIS-1]
 
 ### 1.1 Unused Filesystem Modules
@@ -135,13 +155,20 @@ timedatectl status 2>/dev/null | grep -E "(NTP|synchronized)"
 ### 3.1 IP Forwarding Disabled
 
 ```bash
+# Docker detection (ip_forward = 1 is required for container networking)
+if systemctl is-active docker &>/dev/null || command -v docker &>/dev/null; then
+  echo "DOCKER_DETECTED=true"
+else
+  echo "DOCKER_DETECTED=false"
+fi
 sysctl net.ipv4.ip_forward
 sysctl net.ipv6.conf.all.forwarding 2>/dev/null
 ```
 
 **Analyze:**
-- ✅ Pass: both return `= 0`
-- 🔴 Fail: either returns `= 1` (host is acting as router)
+- ✅ Pass: both return `= 0` (no Docker detected)
+- ℹ️ Expected: `ip_forward = 1` when `DOCKER_DETECTED=true` — IP forwarding is a hard requirement for Docker container networking; do NOT flag as a finding on Docker hosts
+- 🔴 Fail: either returns `= 1` AND `DOCKER_DETECTED=false` (host acting as unexpected router)
 
 ### 3.2 ICMP Redirects Disabled
 

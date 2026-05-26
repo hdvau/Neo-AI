@@ -57,6 +57,26 @@ Rules:
 
 ---
 
+## 0. System Identity [DAILY]
+
+### 0.1 Hostname & OS Version
+
+```bash
+hostname
+uname -n
+cat /etc/os-release 2>/dev/null | grep -E "^(PRETTY_NAME|VERSION_ID|ID)="
+lsb_release -ds 2>/dev/null || true
+uname -srm
+uptime -p 2>/dev/null || uptime
+```
+
+**Analyze:**
+- Extract and report: hostname, OS name + version, kernel version, architecture, uptime
+- Provide these values for the report header (`<hostname>` and `<date>` fields)
+- Flag: OS that is end-of-life (Ubuntu < 22.04, Debian < 11, RHEL/CentOS < 8)
+
+---
+
 ## 1. Disk Health [DAILY]
 
 ### 1.1 Filesystem Usage
@@ -181,13 +201,26 @@ sensors 2>/dev/null || cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | a
 ### 3.1 Docker Daemon Status
 
 ```bash
+# Socket readiness check
+if [ -S /var/run/docker.sock ]; then
+  echo "Docker socket: present"
+  ls -la /var/run/docker.sock
+else
+  echo "Docker socket: NOT FOUND at /var/run/docker.sock"
+fi
+# Current user's group membership (permission diagnostic)
+echo "Current user: $(whoami) | Groups: $(groups)"
+# Daemon status
 systemctl is-active docker 2>/dev/null || service docker status 2>/dev/null | head -5 || echo "systemctl/service not available"
-docker version --format 'Client: {{.Client.Version}}  Server: {{.Server.Version}}' 2>/dev/null || echo "(docker not reachable)"
+# Version (confirms socket is accessible)
+docker version --format 'Client: {{.Client.Version}}  Server: {{.Server.Version}}' 2>/dev/null || echo "(docker not reachable — check socket permissions or group membership)"
 ```
 
 **Analyze:**
 - If Docker daemon is not active/running, flag as CRITICAL
-- Report Docker engine version
+- If socket is present but `docker version` still fails: flag as WARNING — executing user likely not in `docker` group; fix with `usermod -aG docker <user>`
+- If socket is missing entirely: flag as CRITICAL — daemon not started
+- Report Docker engine version when reachable
 
 ### 3.2 Running Containers
 
