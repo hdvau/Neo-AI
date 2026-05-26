@@ -58,12 +58,10 @@ SECTION BREAKDOWN
 ### 0.1 Hostname & OS Version
 
 ```bash
-hostname
-uname -n
-cat /etc/os-release 2>/dev/null | grep -E "^(PRETTY_NAME|VERSION_ID|ID)="
-lsb_release -ds 2>/dev/null || true
-uname -srm
-date -u '+%Y-%m-%d %H:%M:%S UTC'
+echo "HOSTNAME: $(hostname)"
+echo "OS: $(lsb_release -ds 2>/dev/null || grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
+echo "KERNEL: $(uname -srm)"
+echo "DATE: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 ```
 
 **Analyze:**

@@ -1207,9 +1207,24 @@ class NeoAI:
 
         combined_analyses = "\n\n".join(section_analyses)
 
+        # If a "System Identity" section exists, inject its raw command output
+        # directly into the summary prompt so the AI can reliably populate
+        # header fields (hostname, OS, date) without hunting through analysis text.
+        identity_raw = ""
+        for group in section_groups:
+            if "identity" in group["title"].lower():
+                identity_raw = group["output"]
+                break
+
         if runbook.output_format:
+            identity_block = (
+                f"SYSTEM IDENTITY (raw command output — use these exact values "
+                f"for Hostname / OS / Date fields in the report header):\n"
+                f"{identity_raw}\n\n"
+            ) if identity_raw else ""
             summary_prompt = (
                 f"You have analysed each section of the '{runbook.title}' runbook.\n"
+                f"{identity_block}"
                 f"Here are the per-section findings:\n\n"
                 f"{combined_analyses}\n\n"
                 f"Now produce the final consolidated report using exactly "
