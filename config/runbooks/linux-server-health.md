@@ -185,13 +185,29 @@ ps aux --sort=-%mem | head -15
 ### 2.5 System Temperature (if available)
 
 ```bash
-sensors 2>/dev/null || cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | awk '{printf "Zone %d: %.1f °C\n", NR-1, $1/1000}' || echo "(temperature sensors not available)"
+# CPU core temperatures only — filters to coretemp/k10temp/zenpower chips
+# Ignores sensors that have no physical meaning (e.g. ACPI virtual sensors stuck at 103°C)
+sensors -j 2>/dev/null \
+  | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for chip, readings in data.items():
+    if any(k in chip.lower() for k in ('coretemp','k10temp','zenpower','cpu')):
+        for label, vals in readings.items():
+            for k, v in vals.items():
+                if 'input' in k and isinstance(v, (int, float)):
+                    print(f'{chip} | {label}: {v:.1f} °C')
+" 2>/dev/null \
+|| sensors 2>/dev/null | grep -iE "^(Core|Tctl|Tdie|Package|CPU)" \
+|| echo "(sensors not available or no CPU chip detected)"
 ```
 
 **Analyze:**
-- Any CPU or board sensor > 75 °C: WARNING
-- Any sensor > 90 °C: CRITICAL
-- If no sensors available, note it as an action item (install lm-sensors)
+- Only evaluate CPU core/package sensors (coretemp, k10temp, zenpower, Tctl/Tdie/Core labels)
+- Ignore ACPI, virtual, or board sensors — these often report fixed values (e.g. 103 °C) with no physical meaning
+- Any CPU sensor > 75 °C: WARNING
+- Any CPU sensor > 90 °C: CRITICAL
+- If no CPU sensors detected: note as action item (run `sensors-detect` to configure lm-sensors)
 
 ---
 
