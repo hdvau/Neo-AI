@@ -260,8 +260,8 @@ When using external AI backends (OpenAI, Claude) Neo can automatically replace s
 | E-mail addresses | `admin@example.com` | `[EMAIL_1]` |
 | API / secret keys | `sk-...`, `sk-ant-...` | `[API_KEY_1]` |
 | Your hostname | `myserver` | `[HOST_1]` |
-| Your username | `user` | `[USER_1]` |
-| Home-directory paths | `/home/user/projects/` | `[PATH_1]` |
+| Your username | `myuser` | `[USER_1]` |
+| Home-directory paths | `/home/myuser/projects/` | `[PATH_1]` |
 
 Placeholders are **session-stable** — the same value always gets the same placeholder so the AI can give consistent answers across follow-up messages. Standard system paths (`/etc/`, `/usr/bin/`, `/var/log/`) are left unchanged.
 
@@ -427,7 +427,7 @@ Full security command reference is in `config/model_contexts/default.md`. Quick-
 **One-shot from any directory:**
 
 ```bash
-user@myserver:~/gitrepos/server-ops$ neo: show me the contents of this directory
+user@myserver:~/projects$ neo: show me the contents of this directory
 ⠴ Thinking.
 Neo: Let me list the files in your current directory.
 
@@ -445,10 +445,10 @@ Neo: Searching your home folder for report.pdf.
 
 Neo > find "$HOME" -name "report.pdf" -maxdepth 5 2>/dev/null
   ↳ Execute this command? [Enter/n]:
-/Users/user/Documents/report.pdf
+/home/user/Documents/report.pdf
 Neo: Done.
 
-Neo > cp "/Users/user/Documents/report.pdf" "$HOME/Downloads/"
+Neo > cp "/home/user/Documents/report.pdf" "$HOME/Downloads/"
   ↳ Execute this command? [Enter/n]:
 Neo: Done.
 

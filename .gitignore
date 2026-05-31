@@ -14,6 +14,10 @@ config/config.yaml
 # homeserver-runbook.md contains personal server details (real hostnames, disks)
 config/runbooks/homeserver-runbook.md
 
+#codereviews and session handovers  are ignored
+codereview 
+HANDOVER.md
+
 # Pytest / coverage
 .pytest_cache/
 htmlcov/
@@ -26,3 +30,5 @@ htmlcov/
 
 # OS
 .DS_Store
+
+
