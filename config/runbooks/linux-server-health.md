@@ -285,14 +285,32 @@ ip -brief addr show
 - All expected interfaces should be in UP state
 - Flag any expected interface in UNKNOWN or DOWN state as WARNING
 
-### 4.2 Network Traffic Statistics
+### 4.2 Network Traffic Statistics & Drop Analysis
 
 ```bash
 ip -s link show
+
+# UFW-attributable drops per interface (firewall blocks counted as kernel drops)
+for iface in $(ip -brief link show | awk '$2=="UP"{print $1}'); do
+  total_drops=$(cat /proc/net/dev | awk -v iface="$iface:" '$1==iface{print $4+$12}')
+  ufw_drops=$(sudo journalctl -k --since "24 hours ago" 2>/dev/null | grep "UFW BLOCK" | grep "IN=$iface" | wc -l)
+  echo "DROPS $iface: total=$total_drops ufw_blocks=$ufw_drops"
+done
+
+# Hardware-level drop/error counters via ethtool (requires ethtool installed)
+for iface in $(ip -brief link show | awk '$2=="UP" && $1!="lo"{print $1}'); do
+  echo "=== ethtool -S $iface ==="
+  sudo ethtool -S "$iface" 2>/dev/null | grep -iE "drop|miss|error|fail" || echo "(no ethtool stats or not supported)"
+done
 ```
 
 **Analyze:**
-- Flag interfaces with high error or drop counters (> 0.1 % of total packets) as WARNING
+- For each interface, compare `total_drops` vs `ufw_blocks`:
+  - If `ufw_blocks / total_drops > 90%` → **INFO**: drops are UFW firewall blocks (e.g. IGMP multicast), not a hardware problem — do NOT flag as WARNING
+  - If real drops (`total_drops - ufw_blocks`) exceed 0.1% of total RX packets → **WARNING**: genuine kernel drop pressure
+- From `ethtool -S`: any counter named drop/miss/error/fail with value > 0 → **WARNING**: hardware-level issue, investigate NIC or driver
+- TX errors from `ip -s link show` > 0 → **WARNING** regardless of UFW (TX drops are never firewall-caused)
+- If ethtool is not installed → note as action item (install ethtool for hardware diagnostics)
 
 ### 4.3 Open Listening Ports
 
