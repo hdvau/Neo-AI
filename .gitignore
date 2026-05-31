@@ -11,8 +11,9 @@ __pycache__/
 
 # Credentials and config — NEVER commit
 config/config.yaml
-# homeserver-runbook.md contains personal server details (real hostnames, disks)
-config/runbooks/homeserver-runbook.md
+
+# Private runbook variants with real server details (hostnames, disks, IPs)
+config/runbooks/*.local.md
 
 #codereviews and session handovers  are ignored
 codereview 
