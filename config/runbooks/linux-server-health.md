@@ -115,7 +115,7 @@ iostat -dx 1 3 2>/dev/null || vmstat -d
 ```bash
 for disk in $(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}'); do
   echo "=== /dev/$disk ==="
-  smartctl -H /dev/$disk 2>/dev/null || echo "(smartctl not available or not applicable)"
+  sudo smartctl -H /dev/$disk 2>/dev/null || echo "(smartctl not available or not applicable)"
 done
 ```
 
@@ -306,27 +306,30 @@ ip -brief addr show
 ```bash
 ip -s link show
 
-# UFW-attributable drops per interface (firewall blocks counted as kernel drops)
+# Kernel-level RX drop summary per UP interface (cumulative since boot)
+echo "--- RX Drop Summary (since boot) ---"
 for iface in $(ip -brief link show | awk '$2=="UP"{print $1}'); do
-  total_drops=$(cat /proc/net/dev | awk -v iface="$iface:" '$1==iface{print $4+$12}')
-  ufw_drops=$(sudo journalctl -k --since "24 hours ago" 2>/dev/null | grep "UFW BLOCK" | grep "IN=$iface" | wc -l)
-  echo "DROPS $iface: total=$total_drops ufw_blocks=$ufw_drops"
+  rx_packets=$(awk -v iface="$iface:" '$1==iface{print $3}' /proc/net/dev)
+  rx_drops=$(awk -v iface="$iface:" '$1==iface{print $4}' /proc/net/dev)
+  tx_drops=$(awk -v iface="$iface:" '$1==iface{print $12}' /proc/net/dev)
+  echo "IFACE=$iface RX_PACKETS=$rx_packets RX_DROPS=$rx_drops TX_DROPS=$tx_drops"
 done
 
-# Hardware-level drop/error counters via ethtool (requires ethtool installed)
+# Hardware-level drop/error counters via ethtool — primary source for real NIC errors
+echo "--- ethtool Hardware Counters ---"
 for iface in $(ip -brief link show | awk '$2=="UP" && $1!="lo"{print $1}'); do
-  echo "=== ethtool -S $iface ==="
-  sudo ethtool -S "$iface" 2>/dev/null | grep -iE "drop|miss|error|fail" || echo "(no ethtool stats or not supported)"
+  echo "=== $iface ==="
+  sudo ethtool -S "$iface" 2>/dev/null | grep -iE "drop|miss|error|fail" | grep -v ": 0$" \
+    || echo "OK (no non-zero drop/error counters)"
 done
 ```
 
 **Analyze:**
-- For each interface, compare `total_drops` vs `ufw_blocks`:
-  - If `ufw_blocks / total_drops > 90%` → **INFO**: drops are UFW firewall blocks (e.g. IGMP multicast), not a hardware problem — do NOT flag as WARNING
-  - If real drops (`total_drops - ufw_blocks`) exceed 0.1% of total RX packets → **WARNING**: genuine kernel drop pressure
-- From `ethtool -S`: any counter named drop/miss/error/fail with value > 0 → **WARNING**: hardware-level issue, investigate NIC or driver
-- TX errors from `ip -s link show` > 0 → **WARNING** regardless of UFW (TX drops are never firewall-caused)
-- If ethtool is not installed → note as action item (install ethtool for hardware diagnostics)
+- **Primary hardware check**: use `ethtool` output — any non-zero drop/miss/error/fail counter → **WARNING**: real NIC or driver issue
+- **RX_DROPS from /proc/net/dev** are cumulative since boot and include kernel-level drops that are NOT hardware errors (IGMP multicast, unroutable multicast, UFW blocks). Do NOT flag high RX_DROPS as WARNING if ethtool shows all zeros — classify as **INFO**: kernel drops, likely multicast/firewall noise
+- **TX_DROPS > 0** → **WARNING** regardless (TX drops always indicate a real problem)
+- TX errors from `ip -s link show` > 0 → **WARNING**
+- If ethtool is not installed → note as action item
 
 ### 4.3 Open Listening Ports
 
